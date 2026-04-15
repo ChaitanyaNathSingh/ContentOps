@@ -1,0 +1,33 @@
+<div class="form-grid form-grid--3">
+  <div class="form-row">
+    <label>Work type <span class="label-req">*</span></label>
+    {{ f.task_type }}
+    {% if f.task_type.errors %}<div class="form-errors">{{ f.task_type.errors|join:", " }}</div>{% endif %}
+  </div>
+  <div class="form-row">
+    <label>Status</label>
+    {{ f.status }}
+  </div>
+  <div class="form-row">
+    <label>Question type</label>
+    {{ f.question_type }}
+  </div>
+  <div class="form-row">
+    <label>Customer</label>
+    {{ f.customer }}
+  </div>
+  <div class="form-row">
+    <label>Count</label>
+    {{ f.count }}
+  </div>
+  <div class="form-row">
+    <label>Due date <span class="label-req">*</span></label>
+    {{ f.due_at }}
+    {% if f.due_at.errors %}<div class="form-errors">{{ f.due_at.errors|join:", " }}</div>{% endif %}
+  </div>
+  <div class="form-row form-grid-full">
+    <label>Notes / Comment <span class="label-req">*</span></label>
+    {{ f.notes }}
+    {% if f.notes.errors %}<div class="form-errors">{{ f.notes.errors|join:", " }}</div>{% endif %}
+  </div>
+</div>

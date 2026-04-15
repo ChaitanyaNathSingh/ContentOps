@@ -1,0 +1,145 @@
+{% extends "tracker/base.html" %}
+{% block title %}Reports{% endblock %}
+
+{% block content %}
+<div class="page-head page-head--split">
+  <div>
+    <h1>Reports</h1>
+    <p>Analytics for <span class="text-acc">{{ from }}</span> → <span class="text-acc2">{{ to }}</span></p>
+  </div>
+  <a href="?from={{ from }}&to={{ to }}&status={{ sel_status }}&member={{ sel_member }}&export=csv" class="btn btn-secondary btn-sm">↓ Export CSV</a>
+</div>
+
+<form method="get" class="filters mb-section">
+  <div class="filter-group">
+    <label>From</label>
+    <input type="date" name="from" value="{{ from }}" class="field">
+  </div>
+  <div class="filter-group">
+    <label>To</label>
+    <input type="date" name="to" value="{{ to }}" class="field">
+  </div>
+  <div class="filter-group">
+    <label>Member</label>
+    <select name="member" class="field">
+      <option value="">All members</option>
+      {% for m in members %}
+      {% if sel_member == m.display_name %}
+      <option value="{{ m.display_name }}" selected>{{ m.display_name }}</option>
+      {% else %}
+      <option value="{{ m.display_name }}">{{ m.display_name }}</option>
+      {% endif %}
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>Status</label>
+    <select name="status" class="field">
+      <option value="">All</option>
+      {% if sel_status == 'open' %}
+      <option value="open" selected>Open</option>
+      {% else %}
+      <option value="open">Open</option>
+      {% endif %}
+      {% if sel_status == 'in_progress' %}
+      <option value="in_progress" selected>In Progress</option>
+      {% else %}
+      <option value="in_progress">In Progress</option>
+      {% endif %}
+      {% if sel_status == 'blocked' %}
+      <option value="blocked" selected>Blocked</option>
+      {% else %}
+      <option value="blocked">Blocked</option>
+      {% endif %}
+      {% if sel_status == 'closed' %}
+      <option value="closed" selected>Closed</option>
+      {% else %}
+      <option value="closed">Closed</option>
+      {% endif %}
+    </select>
+  </div>
+  <div class="filter-group filter-group--end">
+    <label>&nbsp;</label>
+    <button type="submit" class="btn btn-primary btn-sm">Apply filters</button>
+  </div>
+</form>
+
+<div class="grid-2">
+
+  <div class="card">
+    <div class="card-head">
+      <h2>By task type</h2>
+      <span class="meta">{{ from }} → {{ to }}</span>
+    </div>
+    <div class="tbl-scroll">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th scope="col">Task</th>
+            <th scope="col">Q Type</th>
+            <th scope="col">Items</th>
+            <th scope="col">Volume</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in by_task %}
+          <tr>
+            <td><span class="badge badge-task">{{ r.task_type }}</span></td>
+            <td>{% if r.question_type %}<span class="badge badge-neutral">{{ r.question_type }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td><span class="badge badge-neutral">{{ r.items }}</span></td>
+            <td class="num-em">{{ r.total_count|default:0 }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4">
+            <div class="empty-state empty-state--tight">
+              <div class="icon">📊</div>
+              <p>No data for this period.</p>
+            </div>
+          </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>By member</h2>
+      <span class="meta">entry counts by status</span>
+    </div>
+    <div class="tbl-scroll">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th scope="col">Member</th>
+            <th scope="col">Status</th>
+            <th scope="col">Entries</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in by_member %}
+          <tr>
+            <td>
+              <span class="member-inline member-inline--tight">
+                <span class="avatar avatar--sm">{{ r.member__display_name|first|upper }}</span>
+                {{ r.member__display_name }}
+              </span>
+            </td>
+            <td><span class="badge badge-{{ r.status }}">{{ r.status }}</span></td>
+            <td class="num-em--acc2">{{ r.entries }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="3">
+            <div class="empty-state empty-state--tight">
+              <div class="icon">👥</div>
+              <p>No data for this period.</p>
+            </div>
+          </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

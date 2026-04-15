@@ -1,0 +1,943 @@
+{% extends "tracker/base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-head page-head--split">
+  <div>
+    <h1>Dashboard</h1>
+    <p>Content ops &nbsp;·&nbsp; <span class="text-acc">{{ from }}</span> → <span class="text-acc2">{{ to }}</span></p>
+  </div>
+  <div class="toolbar-actions">
+    <a href="{% url 'plan_new' %}"   class="btn btn-primary btn-sm">＋ Plan</a>
+    <a href="{% url 'update_new' %}" class="btn btn-sm btn-accent2">＋ Update</a>
+  </div>
+</div>
+
+<!-- ── Filters ── -->
+<form method="get" class="filters" id="filter-form">
+  <div class="filter-row">
+    <div class="filter-group">
+      <label>From</label>
+      <input type="date" name="from" value="{{ from }}" class="field">
+    </div>
+    <div class="filter-group">
+      <label>To</label>
+      <input type="date" name="to" value="{{ to }}" class="field">
+    </div>
+    <div class="filter-group">
+      <label>Member</label>
+      <select name="member" class="field">
+        <option value="">All members</option>
+        {% for m in members %}
+        <option value="{{ m.display_name }}"{% if sel_member == m.display_name %} selected{% endif %}>{{ m.display_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Kind</label>
+      <select name="kind" class="field">
+        <option value="">All</option>
+        <option value="plan"{% if sel_kind == 'plan' %} selected{% endif %}>Plan</option>
+        <option value="update"{% if sel_kind == 'update' %} selected{% endif %}>Update</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Status</label>
+      <select name="status" class="field">
+        <option value="">All</option>
+        <option value="open"{% if sel_status == 'open' %} selected{% endif %}>Open</option>
+        <option value="in_progress"{% if sel_status == 'in_progress' %} selected{% endif %}>In Progress</option>
+        <option value="blocked"{% if sel_status == 'blocked' %} selected{% endif %}>Blocked</option>
+        <option value="closed"{% if sel_status == 'closed' %} selected{% endif %}>Done</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Search</label>
+      <input type="text" name="q" value="{{ q }}" placeholder="task, customer…" class="field">
+    </div>
+    <div class="filter-group filter-group--btn">
+      <label>&nbsp;</label>
+      <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+    </div>
+  </div>
+</form>
+
+<!-- ── KPIs ── -->
+<div class="kpi-grid mb-section">
+  <div class="kpi kpi--today">
+    <div class="kpi-label">Today's Plans</div>
+    <div class="kpi-value kpi-value--acc">{{ kpis.today_plans }}</div>
+    <div class="kpi-sub">entries filed today</div>
+  </div>
+  <div class="kpi kpi--today">
+    <div class="kpi-label">Today's Updates</div>
+    <div class="kpi-value kpi-value--acc2">{{ kpis.today_updates }}</div>
+    <div class="kpi-sub">entries filed today</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Plans <span class="kpi-range">(range)</span></div>
+    <div class="kpi-value">{{ kpis.plans }}</div>
+    <div class="kpi-sub">in selected range</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Updates <span class="kpi-range">(range)</span></div>
+    <div class="kpi-value">{{ kpis.updates }}</div>
+    <div class="kpi-sub">in selected range</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Open Items</div>
+    <div class="kpi-value kpi-value--warn">{{ kpis.open_items }}</div>
+    <div class="kpi-sub">not yet done</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Members</div>
+    <div class="kpi-value">{{ kpis.members }}</div>
+    <div class="kpi-sub">active in range</div>
+  </div>
+</div>
+
+<!-- ── Main tabs ── -->
+<div class="dash-tabs" role="tablist">
+  <button type="button" class="dash-tab dash-tab--active" data-tab="worklog"  role="tab" aria-selected="true">Work Log</button>
+  <button type="button" class="dash-tab"                  data-tab="chart"    role="tab" aria-selected="false">Activity</button>
+  <button type="button" class="dash-tab"                  data-tab="analysis" role="tab" aria-selected="false">Analysis</button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     WORK LOG TAB
+═══════════════════════════════════════════════════ -->
+<div id="tab-worklog" class="dash-panel">
+  <div class="card">
+    <div class="card-head">
+      <h2>Work log <span class="meta">{{ rows|length }} rows{% if rows|length == 250 %} <span class="text-warn">capped</span>{% endif %}</span></h2>
+      <div class="card-head-actions">
+        {# Build export URL with same filters #}
+        <a href="{% url 'export_xlsx' %}?from={{ from }}&to={{ to }}{% if sel_member %}&member={{ sel_member }}{% endif %}{% if sel_kind %}&kind={{ sel_kind }}{% endif %}{% if sel_status %}&status={{ sel_status }}{% endif %}{% if q %}&q={{ q }}{% endif %}"
+           class="btn btn-sm btn-export" title="Download as Excel (.xlsx)">
+          ↓ Export xlsx
+        </a>
+      </div>
+    </div>
+
+    <div class="wl-table-wrap">
+      <table class="wl-tbl">
+        <thead>
+          <tr>
+            <th class="wl-th wl-th--date">Date</th>
+            <th class="wl-th wl-th--kind">Kind</th>
+            <th class="wl-th wl-th--status">Status</th>
+            <th class="wl-th wl-th--member">Member</th>
+            <th class="wl-th wl-th--task">Task type</th>
+            <th class="wl-th wl-th--qtype wl-hide-sm">Q&nbsp;Type</th>
+            <th class="wl-th wl-th--cust">Customer</th>
+            <th class="wl-th wl-th--cnt wl-hide-sm">#</th>
+            <th class="wl-th wl-th--jira wl-hide-sm">Jira</th>
+            <th class="wl-th wl-th--notes wl-hide-md">Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr class="wl-tr{% cycle '' ' wl-tr--alt' %}">
+            <td class="wl-td wl-td--date"><span class="wl-date-chip">{{ r.date }}</span></td>
+            <td class="wl-td">
+              <span class="wl-kind-pill wl-kind-pill--{{ r.kind }}">{{ r.kind|capfirst }}</span>
+            </td>
+            <td class="wl-td">
+              <button type="button"
+                class="wl-status-btn wl-status-btn--{{ r.status }} status-move-btn"
+                data-entry-id="{{ r.id }}"
+                data-item-id="{{ r.item_id|default:'' }}"
+                data-status="{{ r.status }}"
+                title="Click to move status">
+                <span class="wl-sdot wl-sdot--{{ r.status }}"></span>
+                {% if r.status == 'in_progress' %}In Prog
+                {% elif r.status == 'open' %}Open
+                {% elif r.status == 'blocked' %}Blocked
+                {% else %}Done{% endif %}
+              </button>
+            </td>
+            <td class="wl-td">
+              <span class="wl-member">
+                <span class="wl-avatar">{{ r.member|slice:":1"|upper }}</span>
+                <span class="wl-member-name">{{ r.member }}</span>
+              </span>
+            </td>
+            <td class="wl-td">
+              {% if r.task_type %}<span class="wl-task-pill" title="{{ r.task_type }}">{{ r.task_type|truncatechars:22 }}</span>
+              {% else %}<span class="wl-null">—</span>{% endif %}
+            </td>
+            <td class="wl-td wl-hide-sm">
+              {% if r.question_type %}<span class="wl-meta-chip">{{ r.question_type }}</span>
+              {% else %}<span class="wl-null">—</span>{% endif %}
+            </td>
+            <td class="wl-td">
+              {% if r.customer %}<span class="wl-meta-chip">{{ r.customer }}</span>
+              {% else %}<span class="wl-null">—</span>{% endif %}
+            </td>
+            <td class="wl-td wl-td--cnt wl-hide-sm">
+              {% if r.count %}<strong class="wl-count">{{ r.count }}</strong>
+              {% else %}<span class="wl-null">—</span>{% endif %}
+            </td>
+            <td class="wl-td wl-hide-sm">
+              {% if r.jira_url %}<a href="{{ r.jira_url }}" target="_blank" rel="noopener noreferrer" class="wl-jira-link">{{ r.jira_key }}</a>
+              {% else %}<span class="wl-null">—</span>{% endif %}
+            </td>
+            <td class="wl-td wl-td--notes wl-hide-md">
+              <span class="wl-notes-text" title="{{ r.notes }}">{{ r.notes|truncatechars:72 }}</span>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="10"><div class="empty-state"><div class="icon">📋</div><p>No rows match your filters.</p></div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     ACTIVITY TAB
+═══════════════════════════════════════════════════ -->
+<div id="tab-chart" class="dash-panel" hidden>
+  <div class="card">
+    <div class="card-head">
+      <h2>Plans &amp; Updates by day</h2>
+      <div class="chart-legend">
+        <span class="legend-dot legend-dot--plan"></span><span class="muted">Plans</span>
+        <span class="legend-dot legend-dot--update"></span><span class="muted">Updates</span>
+      </div>
+    </div>
+    <div class="card-body" style="padding:16px 16px 8px">
+      <canvas id="chart-activity" style="display:block;width:100%;height:160px"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     ANALYSIS TAB
+═══════════════════════════════════════════════════ -->
+<div id="tab-analysis" class="dash-panel" hidden>
+
+  <div class="ef-tabs" role="tablist" style="margin-bottom:16px;">
+    <button type="button" class="ef-tab ef-tab--active" data-atab="by-user"     role="tab">By User</button>
+    <button type="button" class="ef-tab"                data-atab="by-worktype" role="tab">By Work Type</button>
+    <button type="button" class="ef-tab"                data-atab="by-date"     role="tab">By Date</button>
+    <button type="button" class="ef-tab"                data-atab="by-open"     role="tab">Open Items</button>
+  </div>
+
+  <!-- ── By User ── -->
+  <div id="atab-by-user" class="atab-panel">
+    <div class="an-layout">
+      <div class="card an-card-chart">
+        <div class="card-head"><h2>Activity by member</h2><span class="meta">{{ from }} → {{ to }}</span></div>
+        <div class="card-body an-chart-body">
+          <canvas id="chart-by-user" style="display:block;width:100%"></canvas>
+          <div id="chart-by-user-legend" class="an-legend"></div>
+        </div>
+      </div>
+      <div class="card an-card-tbl">
+        <div class="card-head"><h2>Member breakdown</h2><span class="meta">tasks &amp; status</span></div>
+        {% if analysis_by_member %}
+        <div class="tbl-scroll">
+          <table class="wl-tbl an-tbl">
+            <thead><tr>
+              <th class="wl-th">Member</th>
+              <th class="wl-th an-th-num">Plans</th>
+              <th class="wl-th an-th-num">Updates</th>
+              <th class="wl-th an-th-num">Open</th>
+              <th class="wl-th an-th-num">In Prog</th>
+              <th class="wl-th an-th-num">Done</th>
+            </tr></thead>
+            <tbody>
+            {% for row in analysis_by_member %}
+            <tr class="wl-tr{% cycle '' ' wl-tr--alt' %}">
+              <td class="wl-td"><span class="wl-member"><span class="wl-avatar">{{ row.member|slice:":1"|upper }}</span>{{ row.member }}</span></td>
+              <td class="wl-td an-td-num"><span class="wl-kind-pill wl-kind-pill--plan">{{ row.plans }}</span></td>
+              <td class="wl-td an-td-num"><span class="wl-kind-pill wl-kind-pill--update">{{ row.updates }}</span></td>
+              <td class="wl-td an-td-num">{% if row.open %}<span class="wl-status-btn wl-status-btn--open an-stat-pill">{{ row.open }}</span>{% else %}<span class="wl-null">—</span>{% endif %}</td>
+              <td class="wl-td an-td-num">{% if row.in_progress %}<span class="wl-status-btn wl-status-btn--in_progress an-stat-pill">{{ row.in_progress }}</span>{% else %}<span class="wl-null">—</span>{% endif %}</td>
+              <td class="wl-td an-td-num">{% if row.closed %}<span class="wl-status-btn wl-status-btn--closed an-stat-pill">{{ row.closed }}</span>{% else %}<span class="wl-null">—</span>{% endif %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="card-body"><div class="empty-state empty-state--compact"><p>No data in selected range.</p></div></div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── By Work Type ── -->
+  <div id="atab-by-worktype" class="atab-panel" hidden>
+    <div class="an-layout">
+      <div class="card an-card-chart">
+        <div class="card-head"><h2>Work type distribution</h2><span class="meta">by task count</span></div>
+        <div class="card-body an-chart-body">
+          <canvas id="chart-by-worktype" style="display:block"></canvas>
+          <div id="chart-by-worktype-legend" class="an-legend an-legend--compact"></div>
+        </div>
+      </div>
+      <div class="card an-card-tbl">
+        <div class="card-head"><h2>Work type breakdown</h2><span class="meta">task counts</span></div>
+        {% if analysis_by_worktype %}
+        <div class="tbl-scroll">
+          <table class="wl-tbl an-tbl">
+            <thead><tr>
+              <th class="wl-th">Work Type</th>
+              <th class="wl-th an-th-num">Tasks</th>
+              <th class="wl-th an-th-num">Open</th>
+              <th class="wl-th an-th-num">In Prog</th>
+              <th class="wl-th an-th-num">Done</th>
+              <th class="wl-th wl-th--share">Share</th>
+            </tr></thead>
+            <tbody>
+            {% for row in analysis_by_worktype %}
+            <tr class="wl-tr{% cycle '' ' wl-tr--alt' %}">
+              <td class="wl-td"><span class="wl-task-pill" title="{{ row.task_type }}">{{ row.task_type|truncatechars:24 }}</span></td>
+              <td class="wl-td an-td-num"><strong class="wl-count">{{ row.items }}</strong></td>
+              <td class="wl-td an-td-num">{% if row.open %}<span class="wl-status-btn wl-status-btn--open an-stat-pill">{{ row.open }}</span>{% else %}<span class="wl-null">—</span>{% endif %}</td>
+              <td class="wl-td an-td-num">{% if row.in_progress %}<span class="wl-status-btn wl-status-btn--in_progress an-stat-pill">{{ row.in_progress }}</span>{% else %}<span class="wl-null">—</span>{% endif %}</td>
+              <td class="wl-td an-td-num">{% if row.closed %}<span class="wl-status-btn wl-status-btn--closed an-stat-pill">{{ row.closed }}</span>{% else %}<span class="wl-null">—</span>{% endif %}</td>
+              <td class="wl-td">
+                <div class="pct-bar-wrap">
+                  <div class="pct-bar" data-items="{{ row.items }}"></div>
+                  <span class="pct-label" data-items="{{ row.items }}">—</span>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="card-body"><div class="empty-state empty-state--compact"><p>No data in selected range.</p></div></div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── By Date ── -->
+  <div id="atab-by-date" class="atab-panel" hidden>
+    <div class="card">
+      <div class="card-head"><h2>Plans &amp; updates per day</h2><span class="meta">{{ from }} → {{ to }}</span></div>
+      <div class="card-body" style="padding:16px 16px 8px">
+        <canvas id="chart-by-date" style="display:block;width:100%;height:180px"></canvas>
+      </div>
+      <div class="tbl-scroll">
+        <table class="wl-tbl an-tbl" id="date-range-tbl">
+          <thead><tr>
+            <th class="wl-th">Date</th>
+            <th class="wl-th an-th-num">Plans</th>
+            <th class="wl-th an-th-num">Updates</th>
+            <th class="wl-th an-th-num">Total</th>
+          </tr></thead>
+          <tbody id="date-range-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Open Items ── -->
+  <div id="atab-by-open" class="atab-panel" hidden>
+    <div class="an-layout an-layout--wrap">
+      <div class="card an-card-chart an-card-chart--sm">
+        <div class="card-head"><h2>Status overview</h2><span class="meta badge badge-open">{{ kpis.open_items }} open</span></div>
+        <div class="card-body an-chart-body">
+          <canvas id="chart-status-dist" style="display:block"></canvas>
+          <div id="chart-status-legend" class="an-legend an-legend--compact"></div>
+        </div>
+      </div>
+      <div class="card an-card-tbl">
+        <div class="card-head"><h2>Open items</h2><span class="meta">need action</span></div>
+        {% if open_rows %}
+        <div class="tbl-scroll">
+          <table class="wl-tbl an-tbl">
+            <thead><tr>
+              <th class="wl-th">Date</th>
+              <th class="wl-th">Member</th>
+              <th class="wl-th">Task</th>
+              <th class="wl-th wl-hide-sm">Customer</th>
+              <th class="wl-th wl-hide-md">Notes</th>
+              <th class="wl-th">Move</th>
+            </tr></thead>
+            <tbody>
+            {% for r in open_rows %}
+            <tr class="wl-tr{% cycle '' ' wl-tr--alt' %}">
+              <td class="wl-td"><span class="wl-date-chip">{{ r.date }}</span></td>
+              <td class="wl-td"><span class="wl-member"><span class="wl-avatar">{{ r.member|slice:":1"|upper }}</span><span class="wl-member-name">{{ r.member }}</span></span></td>
+              <td class="wl-td"><span class="wl-task-pill" title="{{ r.task_type }}">{{ r.task_type|truncatechars:22 }}</span></td>
+              <td class="wl-td wl-hide-sm">{% if r.customer %}<span class="wl-meta-chip">{{ r.customer }}</span>{% else %}<span class="wl-null">—</span>{% endif %}</td>
+              <td class="wl-td wl-td--notes wl-hide-md"><span class="wl-notes-text" title="{{ r.notes }}">{{ r.notes|truncatechars:55 }}</span></td>
+              <td class="wl-td">
+                <button type="button" class="btn btn-xs btn-accent2 status-move-btn"
+                  data-entry-id="{{ r.id }}" data-item-id="{{ r.item_id|default:'' }}"
+                  data-status="{{ r.status }}">Move →</button>
+              </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="card-body"><div class="empty-state empty-state--compact"><div class="icon">✅</div><p>No open items.</p></div></div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div><!-- /tab-analysis -->
+
+<!-- ── Status Move Modal ── -->
+<div id="status-modal" class="ef-modal-overlay" hidden aria-modal="true" role="dialog">
+  <div class="ef-modal-box">
+    <button id="status-modal-close" type="button" class="ef-modal-close" title="Close">&times;</button>
+    <h3 class="ef-modal-title">Move status</h3>
+    <form id="status-modal-form" method="post" action="{% url 'update_status' %}">
+      {% csrf_token %}
+      <input type="hidden" name="entry_id"      id="modal-entry-id">
+      <input type="hidden" name="entry_item_id" id="modal-item-id">
+      <input type="hidden" name="status"        id="modal-status">
+      <div class="ef-modal-fields">
+        <div class="form-row">
+          <label class="ef-modal-lbl">Move to</label>
+          <select id="modal-target-select" class="field">
+            <option value="open">Open</option>
+            <option value="in_progress">In Progress</option>
+            <option value="blocked">Blocked</option>
+            <option value="closed">Done</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label class="ef-modal-lbl">Comment <span id="modal-comment-req" class="label-req">*</span></label>
+          <textarea id="modal-comment" name="comment" rows="3" class="field"
+                    placeholder="Progress update, blockers, or completion reason…"></textarea>
+          <div class="form-err" id="modal-comment-err" hidden>Comment is required for this transition.</div>
+        </div>
+        <div class="form-row">
+          <label class="ef-modal-lbl">Due Date <span id="modal-due-req" class="label-req">*</span></label>
+          <input type="date" id="modal-due" name="due_at" class="field">
+          <div class="form-err" id="modal-due-err" hidden>Due date is required for this transition.</div>
+        </div>
+        <div class="ef-modal-actions">
+          <button type="submit" class="btn btn-primary">Move status</button>
+          <button type="button" id="status-modal-cancel" class="btn btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="application/json" id="chart-data-json">{{ points_json }}</script>
+<script type="application/json" id="by-member-json">{{ analysis_by_member_json }}</script>
+<script type="application/json" id="by-worktype-json">{{ analysis_by_worktype_json }}</script>
+
+<style>
+/* ── Work-log table ── */
+.wl-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.card-head-actions { display:flex; gap:8px; align-items:center; }
+.btn-export {
+  background: rgba(255,209,102,.10); color: var(--warn);
+  border: 1px solid rgba(255,209,102,.3);
+  font-size:11px; padding:4px 11px; border-radius:7px;
+  font-weight:600; white-space:nowrap;
+  transition: background .15s;
+}
+.btn-export:hover { background: rgba(255,209,102,.2); opacity:1; }
+
+.wl-tbl { width:100%; border-collapse:collapse; font-size:13px; }
+.wl-th {
+  padding:11px 12px;
+  font-size:10px; font-weight:700; color:var(--muted);
+  text-transform:uppercase; letter-spacing:.9px;
+  text-align:left; white-space:nowrap;
+  background:rgba(0,0,0,.25);
+  border-bottom:1px solid var(--border);
+  position:sticky; top:0; z-index:2;
+}
+.wl-th--date   { width:90px; }
+.wl-th--kind   { width:74px; }
+.wl-th--status { width:96px; }
+.wl-th--member { width:130px; }
+.wl-th--task   { min-width:140px; }
+.wl-th--qtype  { width:100px; }
+.wl-th--cust   { width:110px; }
+.wl-th--cnt    { width:44px; text-align:center; }
+.wl-th--jira   { width:72px; }
+.wl-th--notes  { min-width:160px; }
+.wl-th--share  { min-width:110px; }
+.an-th-num     { text-align:center; width:68px; }
+
+.wl-tr { transition:background .12s; }
+.wl-tr:hover { background:rgba(255,255,255,.034); }
+.wl-tr--alt   { background:rgba(255,255,255,.011); }
+.wl-tr--alt:hover { background:rgba(255,255,255,.038); }
+.wl-tr:last-child .wl-td { border-bottom:none; }
+
+.wl-td {
+  padding:9px 12px;
+  border-bottom:1px solid rgba(255,255,255,.034);
+  vertical-align:middle;
+}
+.wl-td--date  { white-space:nowrap; }
+.wl-td--cnt   { text-align:center; }
+.wl-td--notes { max-width:200px; }
+
+/* Date chip */
+.wl-date-chip {
+  font-family: ui-monospace,'SF Mono',Consolas,monospace;
+  font-size:11px; font-weight:600; color:var(--muted);
+  background:rgba(255,255,255,.05);
+  border:1px solid var(--border); border-radius:6px;
+  padding:2px 7px; white-space:nowrap;
+}
+
+/* Kind pill */
+.wl-kind-pill {
+  display:inline-flex; align-items:center;
+  padding:3px 9px; border-radius:999px;
+  font-size:11px; font-weight:700; white-space:nowrap;
+}
+.wl-kind-pill--plan   { background:var(--acc-dim);  color:var(--acc);  border:1px solid var(--acc-glow); }
+.wl-kind-pill--update { background:var(--acc2-dim); color:var(--acc2); border:1px solid var(--acc2-glow); }
+
+/* Status button */
+.wl-status-btn {
+  display:inline-flex; align-items:center; gap:5px;
+  padding:3px 9px; border-radius:999px;
+  font-size:11px; font-weight:600;
+  border:1px solid transparent; cursor:pointer;
+  font-family:var(--font); background:none; white-space:nowrap;
+  transition:opacity .15s, transform .1s;
+}
+.wl-status-btn:hover { opacity:.8; transform:scale(1.04); }
+.wl-status-btn:active { transform:scale(.97); }
+.wl-status-btn--open        { background:var(--acc-dim);           color:var(--acc);   border-color:var(--acc-glow); }
+.wl-status-btn--in_progress { background:var(--acc2-dim);          color:var(--acc2);  border-color:var(--acc2-glow); }
+.wl-status-btn--blocked     { background:var(--warn-dim);          color:var(--warn);  border-color:rgba(255,209,102,.3); }
+.wl-status-btn--closed      { background:rgba(107,126,150,.1);     color:var(--muted); border-color:rgba(107,126,150,.22); }
+.wl-sdot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+.wl-sdot--open        { background:var(--acc); }
+.wl-sdot--in_progress { background:var(--acc2); }
+.wl-sdot--blocked     { background:var(--warn); }
+.wl-sdot--closed      { background:var(--muted); }
+
+/* Member */
+.wl-member { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+.wl-avatar {
+  width:22px; height:22px; border-radius:50%; flex-shrink:0;
+  background:linear-gradient(135deg,rgba(79,255,176,.28),rgba(110,181,255,.28));
+  border:1px solid var(--border-2);
+  display:inline-flex; align-items:center; justify-content:center;
+  font-size:10px; font-weight:800; color:var(--text);
+}
+.wl-member-name { font-size:12px; font-weight:600; color:var(--text-2); }
+
+/* Task pill */
+.wl-task-pill {
+  display:inline-block; max-width:170px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  background:var(--purple-dim); color:var(--purple);
+  border:1px solid rgba(192,132,252,.22); border-radius:6px;
+  padding:3px 8px; font-size:11px; font-weight:600;
+}
+
+/* Meta chip */
+.wl-meta-chip {
+  display:inline-block;
+  background:rgba(255,255,255,.06); color:var(--text-2);
+  border:1px solid rgba(255,255,255,.1); border-radius:6px;
+  padding:2px 8px; font-size:11px; font-weight:500;
+}
+.wl-count  { color:var(--acc); font-weight:700; font-size:13px; }
+.wl-null   { color:rgba(107,126,150,.45); font-size:13px; }
+.wl-jira-link { color:var(--acc2); font-size:11px; font-weight:700;
+  text-decoration:underline; text-underline-offset:2px; }
+.wl-jira-link:hover { color:var(--acc); }
+.wl-notes-text {
+  color:var(--text-2); font-size:12px; line-height:1.4;
+  display:-webkit-box; -webkit-line-clamp:2;
+  -webkit-box-orient:vertical; overflow:hidden;
+}
+
+/* Mobile column hiding */
+@media (max-width: 640px) {
+  .wl-hide-sm { display:none !important; }
+}
+@media (max-width: 900px) {
+  .wl-hide-md { display:none !important; }
+  .wl-member-name { display:none; }   /* show avatar only */
+}
+
+/* Analysis layout */
+.an-layout { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; }
+.an-layout--wrap { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; }
+.an-card-chart { flex:0 0 300px; min-width:260px; }
+.an-card-chart--sm { flex:0 0 260px; min-width:220px; }
+.an-card-tbl   { flex:1 1 300px; min-width:280px; }
+.an-chart-body { display:flex; flex-direction:column; align-items:center; gap:12px; padding:16px; }
+.an-legend { display:flex; flex-direction:column; gap:6px; width:100%; }
+.an-legend--compact { font-size:11px; }
+.an-legend-item { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-2); }
+.an-legend-dot  { width:10px; height:10px; border-radius:3px; flex-shrink:0; }
+.an-legend-label{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.an-legend-val  { font-weight:700; color:var(--acc); }
+.an-tbl .wl-td, .an-tbl .wl-th { padding:8px 11px; }
+.an-td-num { text-align:center; }
+.an-stat-pill { cursor:default !important; }
+.an-stat-pill:hover { opacity:1 !important; transform:none !important; }
+
+@media (max-width:768px) {
+  .an-card-chart, .an-card-chart--sm { flex:1 1 100%; }
+}
+</style>
+
+<script>
+(function () {
+  /* ── data ── */
+  var ptData  = JSON.parse(document.getElementById('chart-data-json').textContent || '[]');
+  var memData = JSON.parse(document.getElementById('by-member-json').textContent  || '[]');
+  var wtData  = JSON.parse(document.getElementById('by-worktype-json').textContent|| '[]');
+
+  var PALETTE = ['#4fffb0','#6eb5ff','#ffd166','#c084fc','#ff6b7a',
+                 '#34d399','#60a5fa','#f59e0b','#a78bfa','#fb7185',
+                 '#10b981','#3b82f6','#d97706','#8b5cf6','#e11d48'];
+
+  /* ── canvas setup (HiDPI) ── */
+  function makeCtx(el, cssW, cssH) {
+    var r = window.devicePixelRatio || 1;
+    el.width  = cssW * r; el.height = cssH * r;
+    el.style.width  = cssW + 'px'; el.style.height = cssH + 'px';
+    var ctx = el.getContext('2d'); ctx.scale(r, r); return ctx;
+  }
+
+  /* ── grouped bar chart (plans vs updates per day) ── */
+  function drawGroupedBar(el, labels, series, colors) {
+    var cssW = el.parentElement ? el.parentElement.clientWidth - 32 : 560;
+    if (cssW < 160) cssW = 160;
+    var cssH = parseInt(el.style.height) || 160;
+    var ctx = makeCtx(el, cssW, cssH);
+    var pL=40, pR=12, pT=14, pB=36;
+    var plotW = cssW-pL-pR, plotH = cssH-pT-pB;
+    var n = labels.length, ns = series.length;
+    var maxVal = 0;
+    series.forEach(function(s){ s.forEach(function(v){ if(v>maxVal) maxVal=v; }); });
+    maxVal = maxVal || 1;
+    var ticks = 4;
+    /* grid + Y axis labels */
+    ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.lineWidth = 1;
+    for (var ti=0; ti<=ticks; ti++) {
+      var gy = pT + plotH*(1 - ti/ticks);
+      ctx.beginPath(); ctx.moveTo(pL, gy); ctx.lineTo(pL+plotW, gy); ctx.stroke();
+      ctx.fillStyle = 'rgba(107,126,150,.7)';
+      ctx.font = '10px Inter,sans-serif';
+      ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.fillText(Math.round(maxVal*ti/ticks), pL-5, gy);
+    }
+    /* bars */
+    var gW = plotW / Math.max(n,1);
+    var bW = Math.min(18, Math.max(4, (gW/ns) - 3));
+    series.forEach(function(vals, si) {
+      ctx.fillStyle = colors[si];
+      vals.forEach(function(v, i) {
+        var h = Math.round(v/maxVal*plotH); if(h<1&&v>0) h=2;
+        var x = pL + i*gW + (gW - ns*(bW+2))/2 + si*(bW+2);
+        var y = pT + plotH - h;
+        ctx.globalAlpha = .85;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(x, y, bW, h, [3,3,0,0]);
+        else ctx.rect(x, y, bW, h);
+        ctx.fill(); ctx.globalAlpha = 1;
+      });
+    });
+    /* X labels — show every Nth to avoid overlap */
+    var step = n > 20 ? Math.ceil(n/15) : (n > 10 ? 2 : 1);
+    ctx.fillStyle = 'rgba(107,126,150,.8)';
+    ctx.font = '9px Inter,sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    labels.forEach(function(lbl, i) {
+      if (i % step !== 0) return;
+      var x = pL + i*gW + gW/2;
+      var short = lbl.length >= 6 ? lbl.slice(-5) : lbl; /* "MM-DD" */
+      ctx.fillText(short, x, pT+plotH+5);
+    });
+  }
+
+  /* ── donut chart ── */
+  function drawDonut(el, labels, values, colors, centreLabel) {
+    var size = parseInt(el.style.width)||200;
+    var ctx = makeCtx(el, size, size);
+    var total = values.reduce(function(a,b){return a+b;},0); if(!total) return;
+    var cx=size/2, cy=size/2, outerR=size/2-6, innerR=outerR*0.54, gap=0.018;
+    var start = -Math.PI/2;
+    values.forEach(function(v, i) {
+      var sweep = (v/total)*Math.PI*2 - gap;
+      ctx.beginPath(); ctx.moveTo(cx,cy);
+      ctx.arc(cx,cy,outerR, start+gap/2, start+gap/2+sweep);
+      ctx.arc(cx,cy,innerR, start+gap/2+sweep, start+gap/2, true);
+      ctx.closePath();
+      ctx.fillStyle = colors[i%colors.length]; ctx.globalAlpha=.9;
+      ctx.fill(); ctx.globalAlpha=1;
+      start += (v/total)*Math.PI*2;
+    });
+    if (centreLabel) {
+      ctx.fillStyle='#e8edf6'; ctx.font='bold 18px Inter,sans-serif';
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(centreLabel, cx, cy-8);
+      ctx.fillStyle='rgba(107,126,150,.8)'; ctx.font='10px Inter,sans-serif';
+      ctx.fillText('total', cx, cy+10);
+    }
+  }
+
+  /* ── HTML legend ── */
+  function drawLegend(containerId, labels, values, colors) {
+    var el = document.getElementById(containerId); if(!el) return;
+    var total = values.reduce(function(a,b){return a+b;},0);
+    el.innerHTML = labels.map(function(lbl,i){
+      var pct = total ? Math.round(values[i]/total*100) : 0;
+      return '<div class="an-legend-item">' +
+        '<span class="an-legend-dot" style="background:'+colors[i%colors.length]+'"></span>' +
+        '<span class="an-legend-label" title="'+lbl+'">'+lbl+'</span>' +
+        '<span class="an-legend-val">'+values[i]+'</span>' +
+        '<span style="font-size:10px;color:var(--muted);margin-left:3px;">('+pct+'%)</span>' +
+        '</div>';
+    }).join('');
+  }
+
+  /* ── horizontal stacked bar (member chart) ── */
+  function drawHBar(el, rows) {
+    var rowH = 30, gap2 = 6, labelW = 100, padR = 8;
+    var cssH = rows.length*(rowH+gap2) + 8;
+    var cssW = el.parentElement ? el.parentElement.clientWidth - 32 : 400;
+    if (cssW < 200) cssW = 200;
+    el.style.height = cssH+'px'; el.style.width = '100%';
+    var ctx = makeCtx(el, cssW, cssH);
+    var barW = cssW - labelW - padR - 8;
+    var maxVal = Math.max.apply(null, rows.map(function(r){
+      return r.segments.reduce(function(a,s){return a+s.value;},0);
+    }).concat([1]));
+    rows.forEach(function(row, i) {
+      var y = i*(rowH+gap2) + 4;
+      ctx.fillStyle='rgba(184,196,212,.8)'; ctx.font='600 11px Inter,sans-serif';
+      ctx.textAlign='right'; ctx.textBaseline='middle';
+      var short = row.label.length>13 ? row.label.slice(0,12)+'…' : row.label;
+      ctx.fillText(short, labelW, y+rowH/2);
+      var x = labelW + 8;
+      row.segments.forEach(function(seg) {
+        if (!seg.value) return;
+        var w = Math.max(2, Math.round(seg.value/maxVal*barW));
+        ctx.beginPath(); ctx.fillStyle=seg.color; ctx.globalAlpha=.85;
+        if(ctx.roundRect) ctx.roundRect(x, y+4, w, rowH-8, 3);
+        else ctx.rect(x, y+4, w, rowH-8);
+        ctx.fill(); ctx.globalAlpha=1;
+        if (w>22) {
+          ctx.fillStyle='rgba(0,0,0,.7)'; ctx.font='bold 10px Inter,sans-serif';
+          ctx.textAlign='center'; ctx.textBaseline='middle';
+          ctx.fillText(seg.value, x+w/2, y+rowH/2);
+        }
+        x+=w;
+      });
+    });
+  }
+
+  /* ── lazy render tracker ── */
+  var rendered = {};
+  function renderChart(key) {
+    if (rendered[key]) return;
+    rendered[key] = true;
+    if (key === 'activity') {
+      var el = document.getElementById('chart-activity');
+      if (el && ptData.length) {
+        el.style.height = '160px';
+        drawGroupedBar(el,
+          ptData.map(function(d){return d.date;}),
+          [ptData.map(function(d){return d.plans;}), ptData.map(function(d){return d.updates;})],
+          ['#4fffb0','#6eb5ff']
+        );
+      }
+    } else if (key === 'by-user') {
+      var el2 = document.getElementById('chart-by-user');
+      if (el2 && memData.length) {
+        drawHBar(el2, memData.map(function(m){
+          return { label:m.member, segments:[
+            {value:m.open||0,       color:'#4fffb0'},
+            {value:m.in_progress||0,color:'#6eb5ff'},
+            {value:m.blocked||0,    color:'#ffd166'},
+            {value:m.closed||0,     color:'rgba(107,126,150,.6)'}
+          ]};
+        }));
+        drawLegend('chart-by-user-legend',
+          ['Open','In Progress','Blocked','Done'],
+          [memData.reduce(function(a,m){return a+(m.open||0);},0),
+           memData.reduce(function(a,m){return a+(m.in_progress||0);},0),
+           memData.reduce(function(a,m){return a+(m.blocked||0);},0),
+           memData.reduce(function(a,m){return a+(m.closed||0);},0)],
+          ['#4fffb0','#6eb5ff','#ffd166','rgba(107,126,150,.9)']
+        );
+      }
+    } else if (key === 'by-worktype') {
+      var el3 = document.getElementById('chart-by-worktype');
+      if (el3 && wtData.length) {
+        var sz = Math.min(200, (el3.parentElement ? el3.parentElement.clientWidth - 32 : 200));
+        el3.style.width = sz+'px'; el3.style.height = sz+'px';
+        var labels = wtData.map(function(r){return r.task_type;});
+        var vals   = wtData.map(function(r){return r.items;});
+        drawDonut(el3, labels, vals, PALETTE, String(vals.reduce(function(a,b){return a+b;},0)));
+        drawLegend('chart-by-worktype-legend', labels, vals, PALETTE);
+      }
+    } else if (key === 'by-date') {
+      var el4 = document.getElementById('chart-by-date');
+      if (el4 && ptData.length) {
+        el4.style.height = '180px';
+        drawGroupedBar(el4,
+          ptData.map(function(d){return d.date;}),
+          [ptData.map(function(d){return d.plans;}), ptData.map(function(d){return d.updates;})],
+          ['#4fffb0','#6eb5ff']
+        );
+      }
+      /* populate table */
+      var body = document.getElementById('date-range-body');
+      if (body) {
+        body.innerHTML = ptData.map(function(d){
+          var tot = d.plans+d.updates;
+          return '<tr class="wl-tr"><td class="wl-td"><span class="wl-date-chip">'+d.date+'</span></td>'+
+            '<td class="wl-td an-td-num">'+(d.plans?'<span class="wl-kind-pill wl-kind-pill--plan">'+d.plans+'</span>':'<span class="wl-null">—</span>')+'</td>'+
+            '<td class="wl-td an-td-num">'+(d.updates?'<span class="wl-kind-pill wl-kind-pill--update">'+d.updates+'</span>':'<span class="wl-null">—</span>')+'</td>'+
+            '<td class="wl-td an-td-num"><strong class="wl-count">'+tot+'</strong></td></tr>';
+        }).join('') || '<tr><td colspan="4" class="wl-td"><div class="empty-state empty-state--compact"><p>No entries.</p></div></td></tr>';
+      }
+    } else if (key === 'by-open') {
+      var el5 = document.getElementById('chart-status-dist');
+      if (el5 && memData.length) {
+        var open=0,inp=0,blk=0,done=0;
+        memData.forEach(function(m){ open+=(m.open||0); inp+=(m.in_progress||0); blk+=(m.blocked||0); done+=(m.closed||0); });
+        var sz2 = Math.min(200, (el5.parentElement ? el5.parentElement.clientWidth-32 : 200));
+        el5.style.width=sz2+'px'; el5.style.height=sz2+'px';
+        drawDonut(el5,['Open','In Progress','Blocked','Done'],[open,inp,blk,done],
+          ['#4fffb0','#6eb5ff','#ffd166','rgba(107,126,150,.9)'],String(open+inp+blk+done));
+        drawLegend('chart-status-legend',['Open','In Progress','Blocked','Done'],
+          [open,inp,blk,done],['#4fffb0','#6eb5ff','#ffd166','rgba(107,126,150,.9)']);
+      }
+    }
+  }
+
+  /* ── main tab switching ── */
+  var dashTabs = document.querySelectorAll('.dash-tab');
+  var tabPanels = { worklog:'tab-worklog', chart:'tab-chart', analysis:'tab-analysis' };
+
+  function switchMainTab(key) {
+    dashTabs.forEach(function(b){
+      var on = b.getAttribute('data-tab')===key;
+      b.classList.toggle('dash-tab--active', on);
+      b.setAttribute('aria-selected', on?'true':'false');
+    });
+    Object.keys(tabPanels).forEach(function(k){
+      var el = document.getElementById(tabPanels[k]);
+      if (el) el.hidden = (k!==key);
+    });
+    if (key==='chart') renderChart('activity');
+    if (key==='analysis') renderChart(currentAtab);
+  }
+
+  dashTabs.forEach(function(btn){
+    btn.addEventListener('click', function(){ switchMainTab(btn.getAttribute('data-tab')); });
+  });
+
+  /* ── analysis sub-tab switching ── */
+  var aTabs   = document.querySelectorAll('[data-atab]');
+  var aPanels = ['atab-by-user','atab-by-date','atab-by-worktype','atab-by-open'];
+  var currentAtab = 'by-user';
+
+  aTabs.forEach(function(btn){
+    btn.addEventListener('click', function(){
+      aTabs.forEach(function(b){ b.classList.remove('ef-tab--active'); });
+      btn.classList.add('ef-tab--active');
+      currentAtab = btn.getAttribute('data-atab');
+      aPanels.forEach(function(id){
+        var el = document.getElementById(id);
+        if (el) el.hidden = (id !== 'atab-'+currentAtab);
+      });
+      renderChart(currentAtab);
+    });
+  });
+
+  /* ── auto-open analysis tab when ?tab=graphs ── */
+  if (new URLSearchParams(window.location.search).get('tab')==='graphs') {
+    switchMainTab('analysis');
+    renderChart('by-user');
+  }
+
+  /* ── work-type pct bars ── */
+  var pctBars = Array.from(document.querySelectorAll('.pct-bar[data-items]'));
+  if (pctBars.length) {
+    var allSum  = pctBars.reduce(function(a,el){return a+parseInt(el.getAttribute('data-items'),10);},0);
+    var maxIt   = Math.max.apply(null, pctBars.map(function(el){return parseInt(el.getAttribute('data-items'),10);}).concat([1]));
+    pctBars.forEach(function(el){ el.style.width=Math.round(parseInt(el.getAttribute('data-items'),10)/maxIt*100)+'%'; });
+    document.querySelectorAll('.pct-label[data-items]').forEach(function(el){
+      var n=parseInt(el.getAttribute('data-items'),10);
+      el.textContent = allSum ? Math.round(n/allSum*100)+'%' : '—';
+    });
+  }
+
+  /* ── status move modal ── */
+  var NEEDS_CMT = {in_progress:true, blocked:true, closed:true};
+  var NEEDS_DUE = {in_progress:true, closed:true};
+  var S_ORDER   = ['open','in_progress','blocked','closed'];
+  var modal=document.getElementById('status-modal'),
+      sForm=document.getElementById('status-modal-form'),
+      sBtnClose=document.getElementById('status-modal-close'),
+      sBtnCancel=document.getElementById('status-modal-cancel'),
+      sSel=document.getElementById('modal-target-select'),
+      sEntryId=document.getElementById('modal-entry-id'),
+      sItemId=document.getElementById('modal-item-id'),
+      sStatusIn=document.getElementById('modal-status'),
+      sCmt=document.getElementById('modal-comment'),
+      sDue=document.getElementById('modal-due'),
+      sCmtErr=document.getElementById('modal-comment-err'),
+      sDueErr=document.getElementById('modal-due-err'),
+      sCmtReq=document.getElementById('modal-comment-req'),
+      sDueReq=document.getElementById('modal-due-req');
+
+  function updateReq(){ var t=sSel.value; sCmtReq.hidden=!NEEDS_CMT[t]; sDueReq.hidden=!NEEDS_DUE[t]; }
+  if(sSel) sSel.addEventListener('change', updateReq);
+
+  function openModal(btn){
+    var cur=btn.getAttribute('data-status')||'open';
+    var idx=S_ORDER.indexOf(cur);
+    var nxt=idx<S_ORDER.length-1?S_ORDER[idx+1]:S_ORDER[idx>0?idx-1:0];
+    Array.from(sSel.options).forEach(function(o){ o.disabled=(o.value===cur); o.selected=(o.value===nxt); });
+    updateReq();
+    sEntryId.value=btn.getAttribute('data-entry-id')||'';
+    sItemId.value=btn.getAttribute('data-item-id')||'';
+    sCmt.value=''; sDue.value='';
+    sCmtErr.hidden=true; sDueErr.hidden=true;
+    sStatusIn.value=sSel.value;
+    modal.hidden=false;
+    setTimeout(function(){sCmt.focus();},50);
+  }
+  function closeModal(){ modal.hidden=true; }
+  if(sBtnClose)  sBtnClose.addEventListener('click',  closeModal);
+  if(sBtnCancel) sBtnCancel.addEventListener('click', closeModal);
+  if(modal){
+    modal.addEventListener('click',function(e){ if(e.target===modal) closeModal(); });
+    document.addEventListener('keydown',function(e){ if(e.key==='Escape'&&!modal.hidden) closeModal(); });
+  }
+  if(sForm){
+    sForm.addEventListener('submit',function(e){
+      var t=sSel.value; sStatusIn.value=t; var ok=true;
+      sCmtErr.hidden=true; sDueErr.hidden=true;
+      if(NEEDS_CMT[t]&&!sCmt.value.trim()){ sCmtErr.hidden=false; sCmt.focus(); ok=false; }
+      if(NEEDS_DUE[t]&&!sDue.value){ sDueErr.hidden=false; if(ok) sDue.focus(); ok=false; }
+      if(!ok) e.preventDefault();
+    });
+  }
+  document.querySelectorAll('.status-move-btn').forEach(function(btn){
+    btn.addEventListener('click',function(){ openModal(btn); });
+  });
+
+})();
+</script>
+{% endblock %}

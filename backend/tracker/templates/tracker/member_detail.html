@@ -1,0 +1,169 @@
+{% extends "tracker/base.html" %}
+{% block title %}{{ member.display_name }}{% endblock %}
+
+{% block content %}
+<div class="page-head page-head--split">
+  <div class="page-head--row-wide">
+    <a href="{% url 'members_list' %}" class="btn btn-secondary btn-sm">← Members</a>
+    <div class="page-head--row">
+      <div class="avatar avatar--lg">{{ member.display_name|first|upper }}</div>
+      <div>
+        <h1>{{ member.display_name }}</h1>
+        <p>Week: <span class="text-acc">{{ week_start }}</span> → <span class="text-acc2">{{ week_end }}</span></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="kpi-grid mb-section">
+  <div class="kpi">
+    <div class="kpi-label">Items this week</div>
+    <div class="kpi-value kpi-value--acc">{{ totals.week_items }}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Volume</div>
+    <div class="kpi-value">{{ totals.week_volume }}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Plans</div>
+    <div class="kpi-value kpi-value--acc">{{ totals.week_plans }}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Updates</div>
+    <div class="kpi-value kpi-value--acc2">{{ totals.week_updates }}</div>
+  </div>
+</div>
+
+<div class="grid-2 mb-section">
+  <div class="card">
+    <div class="card-head">
+      <h2>Today · {{ day }}</h2>
+      <span class="badge badge-neutral">{{ day_rows|length }} entries</span>
+    </div>
+    <div class="tbl-scroll">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th scope="col">Kind</th>
+            <th scope="col">Status</th>
+            <th scope="col">Jira</th>
+            <th scope="col">Task</th>
+            <th scope="col">Count</th>
+            <th scope="col">Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in day_rows %}
+          <tr>
+            <td><span class="badge badge-{{ r.kind }}">{{ r.kind }}</span></td>
+            <td><span class="badge badge-{{ r.status }}">{{ r.status }}</span></td>
+            <td>
+              {% if r.jira_url %}
+                <a href="{{ r.jira_url }}" target="_blank" rel="noopener noreferrer" class="link-jira">{{ r.jira_key }}</a>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+            <td>{% if r.task_type %}<span class="badge badge-task">{{ r.task_type }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td>{% if r.count %}<span class="num-em">{{ r.count }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td class="muted text-sm">{{ r.notes|truncatechars:60 }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="6">
+            <div class="empty-state empty-state--compact">
+              <div class="icon">📭</div>
+              <p>No entries today.</p>
+            </div>
+          </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Task breakdown</h2>
+      <span class="meta">this week</span>
+    </div>
+    <div class="tbl-scroll">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th scope="col">Task type</th>
+            <th scope="col">Items</th>
+            <th scope="col">Volume</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in by_task %}
+          <tr>
+            <td><span class="badge badge-task">{{ t.task_type }}</span></td>
+            <td><span class="badge badge-neutral">{{ t.items }}</span></td>
+            <td class="num-em">{{ t.volume }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="3">
+            <div class="empty-state empty-state--compact">
+              <p>No data this week.</p>
+            </div>
+          </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>Week log</h2>
+    <span class="meta">{{ week_rows|length }} rows</span>
+  </div>
+  <div class="tbl-scroll">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th scope="col">Date</th>
+          <th scope="col">Kind</th>
+          <th scope="col">Status</th>
+          <th scope="col">Jira</th>
+          <th scope="col">Task</th>
+          <th scope="col">Q&nbsp;Type</th>
+          <th scope="col">Customer</th>
+          <th scope="col">Count</th>
+          <th scope="col">Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in week_rows %}
+        <tr>
+          <td class="mono muted">{{ r.date }}</td>
+          <td><span class="badge badge-{{ r.kind }}">{{ r.kind }}</span></td>
+          <td><span class="badge badge-{{ r.status }}">{{ r.status }}</span></td>
+          <td>
+            {% if r.jira_url %}
+              <a href="{{ r.jira_url }}" target="_blank" rel="noopener noreferrer" class="link-jira">{{ r.jira_key }}</a>
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
+          <td>{% if r.task_type %}<span class="badge badge-task">{{ r.task_type }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td>{% if r.question_type %}<span class="badge badge-neutral">{{ r.question_type }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td>{% if r.customer %}<span class="badge badge-neutral">{{ r.customer }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td>{% if r.count %}<span class="num-em">{{ r.count }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td class="muted text-sm">{{ r.notes|truncatechars:60 }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="9">
+          <div class="empty-state empty-state--tight">
+            <div class="icon">📭</div>
+            <p>No data this week.</p>
+          </div>
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

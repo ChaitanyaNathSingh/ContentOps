@@ -1,0 +1,587 @@
+{% extends "tracker/base.html" %}
+{% block title %}New {{ kind_label }}{% endblock %}
+
+{% block content %}
+<div class="page-head page-head--row">
+  <a href="{% url 'dashboard' %}" class="btn btn-secondary btn-sm">← Back</a>
+  <div>
+    <h1 class="page-title-row">
+      {% if kind == 'plan' %}
+        <span class="kind-icon kind-icon--plan" aria-hidden="true">📋</span>
+      {% else %}
+        <span class="kind-icon kind-icon--update" aria-hidden="true">✅</span>
+      {% endif %}
+      New {{ kind_label }}
+    </h1>
+    <p>
+      {% if kind == 'plan' %}
+        Log a daily plan — each task becomes its own Jira ticket.
+      {% else %}
+        Update progress on your plan tickets for this date, or log extra work.
+      {% endif %}
+    </p>
+  </div>
+</div>
+
+<form method="post" class="form-page" id="entry-form">
+  {% csrf_token %}
+
+  <!-- ── Entry details ── -->
+  <div class="card mb-card">
+    <div class="card-head">
+      <h2>Entry details</h2>
+      <span class="meta">
+        {% if kind == 'plan' %}
+          <span class="badge badge-plan">Plan</span>
+        {% else %}
+          <span class="badge badge-update">Update</span>
+        {% endif %}
+      </span>
+    </div>
+    <div class="card-body">
+      <div class="form-grid form-grid--4">
+        <div class="form-row">
+          <label>Member</label>
+          {{ form.member }}
+          {% if form.member.errors %}<div class="form-errors">{{ form.member.errors|join:", " }}</div>{% endif %}
+        </div>
+        <div class="form-row">
+          <label>Date</label>
+          {{ form.entry_date }}
+        </div>
+        <div class="form-row">
+          <label>Overall status</label>
+          {{ form.status }}
+        </div>
+        <div class="form-row form-grid-full">
+          <label>Raw text <span class="label-hint">(optional summary)</span></label>
+          {{ form.raw_text }}
+        </div>
+      </div>
+      {% if kind == 'update' %}
+      <div class="reload-row">
+        <p class="muted text-sm">Choose the same <strong>member</strong> and <strong>date</strong> as your plan, then load plan tasks.</p>
+        <button type="button" class="btn btn-secondary btn-sm" id="reload-plan-context">
+          ↻ Load plan for selected member &amp; date
+        </button>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if kind == 'update' %}
+
+  <!-- ── Tabs ── -->
+  <div class="ef-tabs" role="tablist">
+    <button type="button" class="ef-tab ef-tab--active" role="tab" aria-selected="true"
+            data-tab="plan" aria-controls="tab-plan">
+      📋 Plan tasks
+      {% if plan_items %}<span class="tab-badge">{{ plan_items|length }}</span>{% endif %}
+    </button>
+    <button type="button" class="ef-tab" role="tab" aria-selected="false"
+            data-tab="extra" aria-controls="tab-extra">
+      ➕ Extra work
+    </button>
+  </div>
+
+  <!-- ── Plan tasks tab ── -->
+  <div id="tab-plan" class="ef-tab-panel" role="tabpanel">
+    <div class="card mb-card">
+      <div class="card-head">
+        <h2>Plan tasks</h2>
+        <span class="meta">Jira tickets from your plan</span>
+      </div>
+      <div class="card-body gap-stack">
+        {% if not plan_items %}
+          <div class="empty-state empty-state--compact">
+            <div class="icon">📋</div>
+            <p>No plan found for this member and date.</p>
+            <p class="text-sm" style="margin-top:6px;">Switch to the <strong>Extra work</strong> tab to log ad-hoc tasks, or go back and create a plan first.</p>
+          </div>
+        {% else %}
+          {% if plan_entry %}
+          <p class="text-sm muted">Plan entry · {{ plan_entry.entry_date }} · {{ plan_items|length }} task{{ plan_items|length|pluralize }}</p>
+          {% endif %}
+          {{ plan_line_formset.management_form }}
+          {% for row in plan_line_rows %}
+          <div class="item-card" data-task-row>
+            <div class="item-card-head">
+              <div class="item-card-head__left">
+                <span class="item-num">{{ row.item.task_type }}</span>
+                {% if row.item.jira_issue_url %}
+                <a href="{{ row.item.jira_issue_url }}" target="_blank" rel="noopener noreferrer" class="link-jira">{{ row.item.jira_issue_key }}</a>
+                {% elif row.item.jira_issue_key %}
+                <span class="muted">{{ row.item.jira_issue_key }}</span>
+                {% endif %}
+              </div>
+              <!-- per-row quick-move status button -->
+              <button type="button"
+                class="btn btn-xs btn-secondary status-row-btn"
+                data-current="{{ row.item.status }}"
+                data-item-id="{{ row.item.id }}"
+                title="Quick-move status">
+                <span class="status-dot status-dot--{{ row.item.status }}"></span>
+                {{ row.item.get_status_display }}
+              </button>
+            </div>
+            <div class="form-grid form-grid--3">
+              {{ row.form.plan_item_id }}
+              <div class="form-row">
+                <label>Update status <span class="label-req">*</span></label>
+                {{ row.form.status }}
+                {% if row.form.status.errors %}<div class="form-errors">{{ row.form.status.errors|join:", " }}</div>{% endif %}
+              </div>
+              <div class="form-row">
+                <label>Count</label>
+                {{ row.form.count }}
+              </div>
+              <div class="form-row">
+                <label>Due date <span class="label-req">*</span></label>
+                {{ row.form.due_at }}
+                {% if row.form.due_at.errors %}<div class="form-errors">{{ row.form.due_at.errors|join:", " }}</div>{% endif %}
+              </div>
+              <div class="form-row form-grid-full">
+                <label>Comment <span class="label-req">*</span></label>
+                {{ row.form.notes }}
+                {% if row.form.notes.errors %}<div class="form-errors">{{ row.form.notes.errors|join:", " }}</div>{% endif %}
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Extra work tab ── -->
+  <div id="tab-extra" class="ef-tab-panel" role="tabpanel" hidden>
+    <div class="card mb-card">
+      <div class="card-head">
+        <h2>Extra work <span class="label-hint">(optional)</span></h2>
+        <span class="meta">tasks not in the plan</span>
+      </div>
+      <div class="card-body gap-stack" id="task-formset-container-extra">
+        {{ extra_formset.management_form }}
+
+        <!-- existing extra tasks loaded from prior updates -->
+        <div id="existing-extra-tasks"></div>
+
+        {% for item_form in extra_formset %}
+        <div class="item-card" data-task-row>
+          <div class="item-card-head">
+            <span class="item-num js-extra-label">Extra task {{ forloop.counter }}</span>
+            <label class="delete-check">
+              {{ item_form.DELETE }}
+              <span>Remove</span>
+            </label>
+          </div>
+          {% include "tracker/_extra_task_fields.html" with f=item_form %}
+        </div>
+        {% endfor %}
+
+        <div class="extra-footer">
+          <p class="muted text-sm">Add rows for ad-hoc work outside the plan.</p>
+          <button type="button" class="btn btn-secondary btn-sm" id="add-task-btn-extra">＋ Add extra task</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <template id="task-row-template">
+    {% with form=extra_formset.empty_form %}
+    <div class="item-card" data-task-row>
+      <div class="item-card-head">
+        <span class="item-num js-extra-label js-task-label">Extra task</span>
+        <label class="delete-check">
+          {{ form.DELETE }}
+          <span>Remove</span>
+        </label>
+      </div>
+      {% include "tracker/_extra_task_fields.html" with f=form %}
+    </div>
+    {% endwith %}
+  </template>
+
+  {% else %}
+
+  <!-- ── Plan form ── -->
+  <div class="card mb-card">
+    <div class="card-head">
+      <h2>Tasks</h2>
+      <span class="meta">one Jira ticket per row</span>
+    </div>
+    <div class="card-body gap-stack" id="task-formset-container-items">
+      {{ formset.management_form }}
+      {% for item_form in formset %}
+      <div class="item-card" data-task-row>
+        <div class="item-card-head">
+          <span class="item-num">Task {{ forloop.counter }}</span>
+          <label class="delete-check">
+            {{ item_form.DELETE }}
+            <span>Remove</span>
+          </label>
+        </div>
+        <div class="form-grid form-grid--3">
+          <div class="form-row">
+            <label>Work type <span class="label-req">*</span></label>
+            {{ item_form.task_type }}
+            {% if item_form.task_type.errors %}<div class="form-errors">{{ item_form.task_type.errors|join:", " }}</div>{% endif %}
+          </div>
+          <div class="form-row">
+            <label>Question type</label>
+            {{ item_form.question_type }}
+          </div>
+          <div class="form-row">
+            <label>Customer</label>
+            {{ item_form.customer }}
+          </div>
+          <div class="form-row">
+            <label>Count</label>
+            {{ item_form.count }}
+          </div>
+          <div class="form-row">
+            <label>Due date</label>
+            {{ item_form.due_at }}
+          </div>
+          <div class="form-row form-grid-full">
+            <label>Notes</label>
+            {{ item_form.notes }}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+      <div class="extra-footer">
+        <p class="muted text-sm">Add as many tasks as you need. Leave unused rows empty or remove them.</p>
+        <button type="button" class="btn btn-secondary btn-sm" id="add-task-btn-items">＋ Add another task</button>
+      </div>
+    </div>
+  </div>
+
+  <template id="task-row-template">
+    {% with form=formset.empty_form %}
+    <div class="item-card" data-task-row>
+      <div class="item-card-head">
+        <span class="item-num js-task-label">Task</span>
+        <label class="delete-check">
+          {{ form.DELETE }}
+          <span>Remove</span>
+        </label>
+      </div>
+      <div class="form-grid form-grid--3">
+        <div class="form-row">
+          <label>Work type <span class="label-req">*</span></label>
+          {{ form.task_type }}
+        </div>
+        <div class="form-row">
+          <label>Question type</label>
+          {{ form.question_type }}
+        </div>
+        <div class="form-row">
+          <label>Customer</label>
+          {{ form.customer }}
+        </div>
+        <div class="form-row">
+          <label>Count</label>
+          {{ form.count }}
+        </div>
+        <div class="form-row">
+          <label>Due date</label>
+          {{ form.due_at }}
+        </div>
+        <div class="form-row form-grid-full">
+          <label>Notes</label>
+          {{ form.notes }}
+        </div>
+      </div>
+    </div>
+    {% endwith %}
+  </template>
+
+  {% endif %}
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">
+      {% if kind == 'plan' %}📋{% else %}✅{% endif %}
+      Save {{ kind_label }}
+    </button>
+    <a href="{% url 'dashboard' %}" class="btn btn-secondary">Cancel</a>
+  </div>
+</form>
+
+<!-- ── Inline status-move modal (reused from dashboard, scoped here) ── -->
+<div id="ef-status-modal" class="ef-modal-overlay" hidden aria-modal="true" role="dialog">
+  <div class="ef-modal-box">
+    <button class="ef-modal-close" id="ef-modal-close" type="button" aria-label="Close">&times;</button>
+    <h3 class="ef-modal-title">Move status</h3>
+    <div id="ef-modal-task-name" class="ef-modal-taskname"></div>
+    <form id="ef-status-form" method="post" action="{% url 'update_status' %}">
+      {% csrf_token %}
+      <input type="hidden" name="entry_id"      id="ef-modal-entry-id">
+      <input type="hidden" name="entry_item_id" id="ef-modal-item-id">
+      <input type="hidden" name="status"         id="ef-modal-status">
+      <div class="ef-modal-fields">
+        <div class="form-row">
+          <label class="ef-modal-lbl">Move to</label>
+          <select id="ef-modal-target" class="field">
+            <option value="open">Open</option>
+            <option value="in_progress">In Progress</option>
+            <option value="blocked">Blocked</option>
+            <option value="closed">Done</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label class="ef-modal-lbl">Comment <span class="label-req" id="ef-comment-req">*</span></label>
+          <textarea id="ef-modal-comment" name="comment" rows="3" class="field"
+                    placeholder="Progress update, blocker details, or done reason…"></textarea>
+          <div class="form-err" id="ef-comment-err" hidden>Comment is required for this transition.</div>
+        </div>
+        <div class="form-row">
+          <label class="ef-modal-lbl">Due date <span class="label-req" id="ef-due-req">*</span></label>
+          <input type="date" id="ef-modal-due" name="due_at" class="field">
+          <div class="form-err" id="ef-due-err" hidden>Due date is required for this transition.</div>
+        </div>
+        <div class="ef-modal-actions">
+          <button type="submit" class="btn btn-primary">Move status</button>
+          <button type="button" class="btn btn-secondary" id="ef-modal-cancel">Cancel</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ── task_type choices (for dynamically added extra rows) ── */
+var TASK_TYPE_CHOICES = {{ task_type_choices_json|default:"[]"|safe }};
+
+(function () {
+
+  /* ── 1. Tab switching ──────────────────────────────────────────────── */
+  var tabs = document.querySelectorAll('.ef-tab');
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      tabs.forEach(function (t) {
+        t.classList.remove('ef-tab--active');
+        t.setAttribute('aria-selected', 'false');
+      });
+      tab.classList.add('ef-tab--active');
+      tab.setAttribute('aria-selected', 'true');
+      var target = tab.getAttribute('data-tab');
+      document.querySelectorAll('.ef-tab-panel').forEach(function (p) {
+        p.hidden = p.id !== 'tab-' + target;
+      });
+    });
+  });
+
+  /* ── 2. Add extra task row ────────────────────────────────────────── */
+  var addBtn   = document.getElementById('add-task-btn-extra') || document.getElementById('add-task-btn-items');
+  var tmpl     = document.getElementById('task-row-template');
+  var prefix   = document.getElementById('id_extra-TOTAL_FORMS') ? 'extra' : 'items';
+  var totalEl  = document.getElementById('id_' + prefix + '-TOTAL_FORMS');
+  var maxEl    = document.getElementById('id_' + prefix + '-MAX_NUM_FORMS');
+
+  if (addBtn && tmpl && totalEl) {
+    addBtn.addEventListener('click', function () {
+      var idx = parseInt(totalEl.value, 10);
+      var max = maxEl ? parseInt(maxEl.value, 10) : 40;
+      if (idx >= max) { alert('Maximum ' + max + ' tasks per entry.'); return; }
+      var html = tmpl.innerHTML.replace(/__prefix__/g, String(idx));
+      var wrap = document.createElement('div');
+      wrap.innerHTML = html.trim();
+      var card = wrap.firstElementChild;
+      if (!card) return;
+      /* update label */
+      var lbl = card.querySelector('.js-task-label, .js-extra-label');
+      if (lbl) lbl.textContent = (prefix === 'extra' ? 'Extra task ' : 'Task ') + (idx + 1);
+      /* insert before the footer div */
+      var footer = document.querySelector('.extra-footer') || addBtn.parentNode;
+      footer.parentNode.insertBefore(card, footer);
+      totalEl.value = String(idx + 1);
+    });
+  }
+
+  /* ── 3. Load plan context ─────────────────────────────────────────── */
+  var reloadBtn = document.getElementById('reload-plan-context');
+  if (reloadBtn) {
+    reloadBtn.addEventListener('click', function () {
+      var m = document.querySelector('[name="member"]');
+      var d = document.querySelector('[name="entry_date"]');
+      if (!m || !d) return;
+      var u = new URL(window.location.href);
+      u.searchParams.set('member', m.value);
+      u.searchParams.set('date', d.value);
+      window.location.href = u.pathname + '?' + u.searchParams.toString();
+    });
+  }
+
+  /* ── 4. Load existing extra tasks (AJAX) ─────────────────────────── */
+  var STATUS_LABEL = { open: 'Open', in_progress: 'In Progress', blocked: 'Blocked', closed: 'Done' };
+  var STATUS_CLS   = { open: 'badge-open', in_progress: 'badge-in_progress', blocked: 'badge-blocked', closed: 'badge-closed' };
+
+  function buildTaskTypeOptions(selected) {
+    return TASK_TYPE_CHOICES.map(function (c) {
+      return '<option value="' + esc(c.value) + '"' + (c.value === selected ? ' selected' : '') + '>' + esc(c.label) + '</option>';
+    }).join('');
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function renderExistingCard(item) {
+    var statusCls = STATUS_CLS[item.status] || 'badge-open';
+    var statusLbl = STATUS_LABEL[item.status] || item.status;
+    return '<div class="item-card item-card--existing" data-item-id="' + item.id + '" data-entry-id="' + item.entry_id + '">' +
+      '<div class="item-card-head">' +
+        '<div class="item-card-head__left">' +
+          '<span class="item-num">' + esc(item.task_type) + '</span>' +
+          (item.jira_key ? '<a href="' + esc(item.jira_url) + '" target="_blank" rel="noopener noreferrer" class="link-jira">' + esc(item.jira_key) + '</a>' : '') +
+        '</div>' +
+        '<button type="button" class="badge ' + statusCls + ' status-row-btn existing-status-btn" ' +
+          'data-entry-id="' + item.entry_id + '" data-item-id="' + item.id + '" ' +
+          'data-status="' + item.status + '" data-task="' + esc(item.task_type) + '">' +
+          '<span class="status-dot status-dot--' + item.status + '"></span> ' + statusLbl +
+        '</button>' +
+      '</div>' +
+      '<div class="existing-task-meta">' +
+        (item.customer ? '<span class="badge badge-neutral">' + esc(item.customer) + '</span>' : '') +
+        (item.count    ? '<span class="badge badge-neutral">×' + item.count + '</span>' : '') +
+        (item.due_at   ? '<span class="badge badge-neutral">Due ' + item.due_at + '</span>' : '') +
+      '</div>' +
+      (item.notes ? '<p class="existing-task-notes">' + esc(item.notes) + '</p>' : '') +
+    '</div>';
+  }
+
+  function loadExtraTasksForMemberDate(memberPk, dateStr) {
+    var container = document.getElementById('existing-extra-tasks');
+    if (!container || !memberPk || !dateStr) return;
+    container.innerHTML = '<p class="muted text-sm">Loading existing extra tasks…</p>';
+    fetch('/api/extra-tasks/?member=' + encodeURIComponent(memberPk) + '&date=' + encodeURIComponent(dateStr))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.items || data.items.length === 0) {
+          container.innerHTML = '';
+          return;
+        }
+        var html = '<div class="existing-tasks-section">' +
+          '<p class="existing-tasks-header">Existing extra tasks for this date</p>' +
+          data.items.map(renderExistingCard).join('') +
+        '</div>';
+        container.innerHTML = html;
+        container.querySelectorAll('.existing-status-btn').forEach(function (btn) {
+          btn.addEventListener('click', function () { openStatusModal(btn); });
+        });
+      })
+      .catch(function () { container.innerHTML = ''; });
+  }
+
+  /* auto-load on page load if member+date are set */
+  var memberSel = document.querySelector('[name="member"]');
+  var dateSel   = document.querySelector('[name="entry_date"]');
+  if (memberSel && dateSel && document.getElementById('tab-extra')) {
+    var m0 = memberSel.value, d0 = dateSel.value;
+    if (m0 && d0) loadExtraTasksForMemberDate(m0, d0);
+    /* also reload when member/date change */
+    [memberSel, dateSel].forEach(function (el) {
+      el.addEventListener('change', function () {
+        var m = memberSel.value, d = dateSel.value;
+        if (m && d) loadExtraTasksForMemberDate(m, d);
+      });
+    });
+  }
+
+  /* ── 5. Per-row status modal ──────────────────────────────────────── */
+  var REQUIRES_COMMENT = { in_progress: true, blocked: true, closed: true };
+  var REQUIRES_DUE     = { in_progress: true, closed: true };
+
+  var modal      = document.getElementById('ef-status-modal');
+  var mForm      = document.getElementById('ef-status-form');
+  var mClose     = document.getElementById('ef-modal-close');
+  var mCancel    = document.getElementById('ef-modal-cancel');
+  var mTarget    = document.getElementById('ef-modal-target');
+  var mEntryId   = document.getElementById('ef-modal-entry-id');
+  var mItemId    = document.getElementById('ef-modal-item-id');
+  var mStatus    = document.getElementById('ef-modal-status');
+  var mComment   = document.getElementById('ef-modal-comment');
+  var mDue       = document.getElementById('ef-modal-due');
+  var mCommentErr= document.getElementById('ef-comment-err');
+  var mDueErr    = document.getElementById('ef-due-err');
+  var mCommentReq= document.getElementById('ef-comment-req');
+  var mDueReq    = document.getElementById('ef-due-req');
+  var mTaskName  = document.getElementById('ef-modal-task-name');
+
+  function updateModalRequired() {
+    var t = mTarget.value;
+    mCommentReq.hidden = !REQUIRES_COMMENT[t];
+    mDueReq.hidden     = !REQUIRES_DUE[t];
+  }
+
+  function openStatusModal(btn) {
+    var current  = btn.getAttribute('data-status') || 'open';
+    var entryId  = btn.getAttribute('data-entry-id') || '';
+    var itemId   = btn.getAttribute('data-item-id')  || '';
+    var taskName = btn.getAttribute('data-task') || btn.closest('.item-card') && btn.closest('.item-card').querySelector('.item-num') && btn.closest('.item-card').querySelector('.item-num').textContent || '';
+
+    mEntryId.value   = entryId;
+    mItemId.value    = itemId;
+    mComment.value   = '';
+    mDue.value       = '';
+    mCommentErr.hidden = true;
+    mDueErr.hidden     = true;
+    mTaskName.textContent = taskName;
+
+    /* set target dropdown — exclude current */
+    Array.from(mTarget.options).forEach(function (opt) {
+      opt.disabled = opt.value === current;
+      opt.selected = false;
+    });
+    /* pick next logical state */
+    var order = ['open','in_progress','blocked','closed'];
+    var idx = order.indexOf(current);
+    var next = idx < order.length - 1 ? order[idx + 1] : order[idx > 0 ? idx - 1 : 0];
+    mTarget.value = next;
+    updateModalRequired();
+    modal.hidden = false;
+    setTimeout(function () { mComment.focus(); }, 50);
+  }
+
+  if (mTarget) mTarget.addEventListener('change', updateModalRequired);
+
+  function closeModal() { modal.hidden = true; }
+  if (mClose)  mClose.addEventListener('click',  closeModal);
+  if (mCancel) mCancel.addEventListener('click', closeModal);
+  if (modal) modal.addEventListener('click', function (e) {
+    if (e.target === modal) closeModal();
+  });
+
+  /* keyboard close */
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && modal && !modal.hidden) closeModal();
+  });
+
+  if (mForm) {
+    mForm.addEventListener('submit', function (e) {
+      var target = mTarget.value;
+      mStatus.value = target;
+      var ok = true;
+      mCommentErr.hidden = true;
+      mDueErr.hidden     = true;
+      if (REQUIRES_COMMENT[target] && !mComment.value.trim()) {
+        mCommentErr.hidden = false; mComment.focus(); ok = false;
+      }
+      if (REQUIRES_DUE[target] && !mDue.value) {
+        mDueErr.hidden = false; if (ok) mDue.focus(); ok = false;
+      }
+      if (!ok) e.preventDefault();
+    });
+  }
+
+  /* wire up existing plan-row status buttons on page load */
+  document.querySelectorAll('.status-row-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () { openStatusModal(btn); });
+  });
+
+})();
+</script>
+{% endblock %}
