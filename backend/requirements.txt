@@ -1,2 +1,7 @@
 django>=4.2,<5.0
 python-dotenv
+psycopg2-binary
+dj-database-url
+whitenoise[brotli]
+gunicorn
+uvicorn
