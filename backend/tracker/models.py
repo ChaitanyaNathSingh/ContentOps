@@ -2,9 +2,15 @@ from django.db import models
 
 
 class Member(models.Model):
+    ROLE_CHOICES = [
+        ('content', 'Content'),
+        ('ae', 'Application Engineer'),
+    ]
+
     display_name = models.CharField(max_length=120, unique=True)
     slack_user_id = models.CharField(max_length=64, blank=True, null=True)
     is_active = models.BooleanField(default=True)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='content')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -95,6 +101,34 @@ class EntryItem(models.Model):
 
     def __str__(self):
         return f"{self.task_type} ({self.question_type or '—'})"
+
+
+class AEDailyUpdate(models.Model):
+    """Daily update entry for Application Engineers — one row per member per day."""
+
+    member = models.ForeignKey(Member, on_delete=models.PROTECT, related_name='ae_daily_updates')
+    entry_date = models.DateField()
+    setter_enhancements = models.PositiveIntegerField(default=0)
+    he_support_replies = models.PositiveIntegerField(default=0, verbose_name='#he_support_v2 Replies/Resolutions')
+    eng_assessment_replies = models.PositiveIntegerField(default=0, verbose_name='#engineering_assessment Replies/Resolutions')
+    facecode_replies = models.PositiveIntegerField(default=0, verbose_name='#engineering_facecode Replies/Resolutions')
+    data_requests_replies = models.PositiveIntegerField(default=0, verbose_name='#data_requests Replies/Resolutions')
+    redash_queries = models.PositiveIntegerField(default=0)
+    bug_fixes = models.PositiveIntegerField(default=0)
+    deployments = models.PositiveIntegerField(default=0)
+    setter_enhancements_count = models.PositiveIntegerField(default=0, verbose_name='Setter Enhancements (count)')
+    utilities = models.PositiveIntegerField(default=0)
+    notes = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-entry_date', 'member__display_name']
+        unique_together = [('member', 'entry_date')]
+        indexes = [models.Index(fields=['entry_date'])]
+
+    def __str__(self):
+        return f"{self.entry_date} · {self.member}"
 
 
 class SlackDayThread(models.Model):

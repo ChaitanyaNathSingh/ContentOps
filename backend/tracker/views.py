@@ -9,11 +9,12 @@ from django.utils.safestring import mark_safe
 from django.db.models import Count, Sum
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from .forms import DailyEntryForm, EntryItemFormSet, ExtraEntryItemFormSet, PlanUpdateLineFormSet, TASK_TYPE_CHOICES
-from .models import DailyEntry, EntryItem, Member
+from .forms import DailyEntryForm, EntryItemFormSet, ExtraEntryItemFormSet, PlanUpdateLineFormSet, AEDailyUpdateForm, TASK_TYPE_CHOICES
+from .models import DailyEntry, EntryItem, Member, AEDailyUpdate
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -962,3 +963,236 @@ def reports(request):
         'by_task': by_task, 'by_member': by_member,
         'members': members,
     })
+
+
+# ── AE weekly updates ─────────────────────────────────────────────────────────
+
+AE_FIELDS = [
+    ('setter_enhancements',      'Setter Enhancements'),
+    ('he_support_replies',       '#he_support_v2 Replies / Resolutions'),
+    ('eng_assessment_replies',   '#engineering_assessment Replies / Resolutions'),
+    ('facecode_replies',         '#engineering_facecode Replies / Resolutions'),
+    ('data_requests_replies',    '#data_requests Replies / Resolutions'),
+    ('redash_queries',           'Redash Queries'),
+    ('bug_fixes',                'Bug Fixes'),
+    ('deployments',              'Deployments'),
+    ('setter_enhancements_count','Setter Enhancements (count)'),
+    ('utilities',                'Utilities'),
+]
+
+
+def _is_ae_or_admin(request):
+    if request.user.is_staff or request.user.is_superuser:
+        return True
+    return Member.objects.filter(
+        display_name__iexact=request.user.username, role='ae', is_active=True
+    ).exists()
+
+
+@login_required
+def ae_daily(request):
+    if not _is_ae_or_admin(request):
+        from django.http import HttpResponseForbidden
+        return HttpResponseForbidden("Access restricted to Application Engineers and admins.")
+
+    today = date.today()
+    week_start = _monday(today)
+
+    from_d = _parse_date(request.GET.get('from'), default=week_start)
+    to_d   = _parse_date(request.GET.get('to'),   default=today)
+    sel_date = _parse_date(request.GET.get('date'), default=today)
+
+    ae_members = list(Member.objects.filter(is_active=True, role='ae').order_by('display_name'))
+
+    # Today's submission forms — one per AE member
+    today_entries = {
+        e.member.display_name: e
+        for e in AEDailyUpdate.objects.filter(
+            entry_date=sel_date, member__in=ae_members
+        ).select_related('member')
+    }
+    member_forms = []
+    for m in ae_members:
+        entry = today_entries.get(m.display_name)
+        field_rows = [
+            {'field': f, 'label': lbl, 'value': getattr(entry, f, 0) if entry else 0}
+            for f, lbl in AE_FIELDS
+        ]
+        member_forms.append({
+            'member': m,
+            'entry': entry,
+            'field_rows': field_rows,
+            'notes': entry.notes if entry else '',
+        })
+
+    # Date-range summary table: rows = dates, columns = members × metrics
+    range_qs = AEDailyUpdate.objects.filter(
+        entry_date__range=(from_d, to_d),
+        member__in=ae_members,
+    ).select_related('member').order_by('entry_date')
+
+    # Build {date_str: {member_name: entry}}
+    range_by_date = {}
+    for e in range_qs:
+        ds = e.entry_date.isoformat()
+        range_by_date.setdefault(ds, {})[e.member.display_name] = e
+
+    # Aggregate totals per member across date range
+    totals = {m.display_name: {f: 0 for f, _ in AE_FIELDS} for m in ae_members}
+    for e in range_qs:
+        for f, _ in AE_FIELDS:
+            totals[e.member.display_name][f] += getattr(e, f, 0)
+
+    # Summary rows for totals table: [{label, values: [per_member_total]}]
+    summary_rows = [
+        {'label': lbl, 'values': [totals[m.display_name][f] for m in ae_members]}
+        for f, lbl in AE_FIELDS
+    ]
+
+    # Daily log rows for table: [{date, member_values: [{member, entry}]}]
+    sorted_dates = sorted(range_by_date.keys())
+    daily_rows = []
+    for ds in sorted_dates:
+        row_entries = range_by_date[ds]
+        daily_rows.append({
+            'date': ds,
+            'member_entries': [
+                {'member': m, 'entry': row_entries.get(m.display_name)}
+                for m in ae_members
+            ],
+        })
+
+    return render(request, 'tracker/ae_daily.html', {
+        'ae_members': ae_members,
+        'today': today.isoformat(),
+        'sel_date': sel_date.isoformat(),
+        'from': from_d.isoformat(),
+        'to': to_d.isoformat(),
+        'fields': AE_FIELDS,
+        'member_forms': member_forms,
+        'summary_rows': summary_rows,
+        'daily_rows': daily_rows,
+    })
+
+
+@login_required
+@require_POST
+def ae_daily_submit(request):
+    if not _is_ae_or_admin(request):
+        from django.http import HttpResponseForbidden
+        return HttpResponseForbidden("Access restricted to Application Engineers and admins.")
+
+    date_str = request.POST.get('entry_date', '').strip()
+    entry_date = _parse_date(date_str)
+    if not entry_date:
+        messages.error(request, 'Invalid date.')
+        return redirect('ae_daily')
+
+    member_id = request.POST.get('member', '').strip()
+    if not member_id or not member_id.isdigit():
+        messages.error(request, 'Please select a member.')
+        return redirect('ae_daily')
+
+    try:
+        member = Member.objects.get(pk=int(member_id), role='ae')
+    except Member.DoesNotExist:
+        messages.error(request, 'Invalid member.')
+        return redirect('ae_daily')
+
+    obj, _ = AEDailyUpdate.objects.get_or_create(member=member, entry_date=entry_date)
+    for field, _ in AE_FIELDS:
+        try:
+            setattr(obj, field, max(0, int(request.POST.get(field, 0) or 0)))
+        except (TypeError, ValueError):
+            setattr(obj, field, 0)
+    obj.notes = (request.POST.get('notes') or '').strip() or None
+    obj.save()
+    messages.success(request, f'Daily update saved for {member.display_name} on {entry_date}.')
+    return redirect(f"{reverse('ae_daily')}?date={date_str}&from={request.POST.get('from_d', date_str)}&to={request.POST.get('to_d', date_str)}")
+
+
+@login_required
+def ae_daily_export(request):
+    if not _is_ae_or_admin(request):
+        from django.http import HttpResponseForbidden
+        return HttpResponseForbidden("Access restricted to Application Engineers and admins.")
+
+    import openpyxl
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    today = date.today()
+    from_d = _parse_date(request.GET.get('from'), default=_monday(today))
+    to_d   = _parse_date(request.GET.get('to'),   default=today)
+
+    ae_members = list(Member.objects.filter(is_active=True, role='ae').order_by('display_name'))
+    range_qs = AEDailyUpdate.objects.filter(
+        entry_date__range=(from_d, to_d), member__in=ae_members
+    ).select_related('member').order_by('entry_date')
+
+    by_date = {}
+    for e in range_qs:
+        ds = e.entry_date.isoformat()
+        by_date.setdefault(ds, {})[e.member.display_name] = e
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'AE Daily'
+
+    HDR_FILL = PatternFill('solid', fgColor='0F1620')
+    HDR_FONT = Font(name='Calibri', bold=True, color='4FFFB0', size=10)
+    CELL_FONT = Font(name='Calibri', size=10)
+    METRIC_FONT = Font(name='Calibri', size=10, bold=True)
+    BORDER = Border(bottom=Side(style='thin', color='1A2535'))
+    ALT_FILL = PatternFill('solid', fgColor='0C1117')
+
+    # Columns: Date | metric_member1 | metric_member2 | ... (one col per member per metric)
+    # Layout: Date | [Ayush: Setter Enh] | [Ayush: #he_support] | ... | [Chaitanya: Setter Enh] | ...
+    headers = ['Date']
+    col_widths = [13]
+    for m in ae_members:
+        for _, lbl in AE_FIELDS:
+            headers.append(f"{m.display_name}\n{lbl}")
+            col_widths.append(22)
+
+    for ci, (h, w) in enumerate(zip(headers, col_widths), 1):
+        cell = ws.cell(row=1, column=ci, value=h)
+        cell.fill = HDR_FILL
+        cell.font = HDR_FONT
+        cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+        cell.border = BORDER
+        ws.column_dimensions[get_column_letter(ci)].width = w
+
+    ws.row_dimensions[1].height = 40
+    ws.freeze_panes = 'B2'
+
+    sorted_dates = sorted(by_date.keys())
+    for ri, ds in enumerate(sorted_dates, 2):
+        fill = ALT_FILL if ri % 2 == 0 else None
+        c = ws.cell(row=ri, column=1, value=ds)
+        c.font = CELL_FONT
+        c.border = BORDER
+        if fill:
+            c.fill = fill
+        ci = 2
+        for m in ae_members:
+            entry = by_date[ds].get(m.display_name)
+            for field, _ in AE_FIELDS:
+                val = getattr(entry, field, 0) if entry else ''
+                cell = ws.cell(row=ri, column=ci, value=val)
+                cell.font = CELL_FONT
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.border = BORDER
+                if fill:
+                    cell.fill = fill
+                ci += 1
+
+    ws.auto_filter.ref = f'A1:{get_column_letter(len(headers))}1'
+
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    fname = f'ae_daily_{from_d.isoformat()}_{to_d.isoformat()}.xlsx'
+    response['Content-Disposition'] = f'attachment; filename="{fname}"'
+    wb.save(response)
+    return response

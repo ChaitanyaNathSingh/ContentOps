@@ -1,6 +1,6 @@
 from django import forms
 from django.forms import formset_factory
-from .models import DailyEntry, EntryItem
+from .models import DailyEntry, EntryItem, AEDailyUpdate
 
 _cls = 'field'
 
@@ -123,3 +123,54 @@ PlanUpdateLineFormSet = formset_factory(
     min_num=0,
     validate_min=False,
 )
+
+
+class AEDailyUpdateForm(forms.ModelForm):
+    class Meta:
+        model = AEDailyUpdate
+        fields = [
+            'member', 'entry_date',
+            'setter_enhancements',
+            'he_support_replies',
+            'eng_assessment_replies',
+            'facecode_replies',
+            'data_requests_replies',
+            'redash_queries',
+            'bug_fixes',
+            'deployments',
+            'setter_enhancements_count',
+            'utilities',
+            'notes',
+        ]
+        widgets = {
+            'member': forms.Select(attrs={'class': _cls}),
+            'entry_date': forms.DateInput(attrs={'type': 'date', 'class': _cls}),
+            'setter_enhancements': forms.NumberInput(attrs={'class': _cls, 'min': 0}),
+            'he_support_replies': forms.NumberInput(attrs={'class': _cls, 'min': 0}),
+            'eng_assessment_replies': forms.NumberInput(attrs={'class': _cls, 'min': 0}),
+            'facecode_replies': forms.NumberInput(attrs={'class': _cls, 'min': 0}),
+            'data_requests_replies': forms.NumberInput(attrs={'class': _cls, 'min': 0}),
+            'redash_queries': forms.NumberInput(attrs={'class': _cls, 'min': 0}),
+            'bug_fixes': forms.NumberInput(attrs={'class': _cls, 'min': 0}),
+            'deployments': forms.NumberInput(attrs={'class': _cls, 'min': 0}),
+            'setter_enhancements_count': forms.NumberInput(attrs={'class': _cls, 'min': 0}),
+            'utilities': forms.NumberInput(attrs={'class': _cls, 'min': 0}),
+            'notes': forms.Textarea(attrs={'rows': 3, 'class': _cls, 'placeholder': 'Optional notes'}),
+        }
+        labels = {
+            'setter_enhancements': 'Setter Enhancements',
+            'he_support_replies': '#he_support_v2 Replies / Resolutions',
+            'eng_assessment_replies': '#engineering_assessment Replies / Resolutions',
+            'facecode_replies': '#engineering_facecode Replies / Resolutions',
+            'data_requests_replies': '#data_requests Replies / Resolutions',
+            'redash_queries': 'Redash Queries',
+            'bug_fixes': 'Bug Fixes',
+            'deployments': 'Deployments',
+            'setter_enhancements_count': 'Setter Enhancements (count)',
+            'utilities': 'Utilities',
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from .models import Member
+        self.fields['member'].queryset = Member.objects.filter(is_active=True, role='ae')

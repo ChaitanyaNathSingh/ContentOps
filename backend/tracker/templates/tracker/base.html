@@ -1112,6 +1112,13 @@
       <span class="drawer-icon">&#9881;</span>Admin
     </a>
 
+    {% if is_ae_or_admin %}
+    <a href="{% url 'ae_daily' %}"
+       class="drawer-item{% if 'ae_daily' in request.resolver_match.url_name %} active{% endif %}">
+      <span class="drawer-icon">&#128202;</span>AE Updates
+    </a>
+    {% endif %}
+
     <div class="drawer-divider"></div>
     <div class="drawer-section">Quick add</div>
 

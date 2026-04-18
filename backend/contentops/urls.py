@@ -18,6 +18,11 @@ urlpatterns = [
     path('members/<int:member_id>/', views.member_detail, name='member_detail'),
     path('reports/', views.reports, name='reports'),
 
+    # AE daily updates
+    path('ae/daily/', views.ae_daily, name='ae_daily'),
+    path('ae/daily/submit/', views.ae_daily_submit, name='ae_daily_submit'),
+    path('ae/daily/export/', views.ae_daily_export, name='ae_daily_export'),
+
     # Slack intake API
     path('api/intake/slack', views.api_intake_slack, name='api_intake_slack'),
     path('api/health', views.api_health, name='api_health'),

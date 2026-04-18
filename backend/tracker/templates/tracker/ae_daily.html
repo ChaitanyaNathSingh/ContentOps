@@ -1,0 +1,186 @@
+{% extends "tracker/base.html" %}
+{% block title %}AE Daily Updates{% endblock %}
+
+{% block nav_label %}
+<span class="nav-page-label">AE Updates</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-head page-head--split mb-section">
+  <div>
+    <h1>AE Daily Updates</h1>
+    <p class="muted">Application Engineer daily tracker &mdash; one submission per member per day</p>
+  </div>
+  <div class="toolbar-actions">
+    <a href="{% url 'ae_daily_export' %}?from={{ from }}&to={{ to }}" class="btn btn-secondary btn-sm">
+      &#8659;&nbsp;Download Excel
+    </a>
+  </div>
+</div>
+
+<!-- Date selectors: today's entry date + range filter -->
+<div class="filters mb-section">
+  <form method="get" action="{% url 'ae_daily' %}" id="filter-form">
+    <div class="filter-row">
+      <div class="filter-group">
+        <label>Entry date</label>
+        <input type="date" name="date" class="field" value="{{ sel_date }}"
+               onchange="document.getElementById('filter-form').submit()">
+      </div>
+      <div class="filter-group">
+        <label>From</label>
+        <input type="date" name="from" class="field" value="{{ from }}">
+      </div>
+      <div class="filter-group">
+        <label>To</label>
+        <input type="date" name="to" class="field" value="{{ to }}">
+      </div>
+      <div class="filter-group" style="justify-content:flex-end;align-items:flex-end;">
+        <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<!-- Per-member submission forms for selected date -->
+<div class="mb-section">
+  <div class="page-head">
+    <h2 style="font-size:15px;font-weight:700;">Submit / Update &mdash; {{ sel_date }}</h2>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:20px;margin-top:12px;">
+    {% for mf in member_forms %}
+    <div class="card">
+      <div class="card-head">
+        <h2>
+          <span class="member-inline">
+            <span class="avatar avatar--sm">{{ mf.member.display_name|slice:":1"|upper }}</span>
+            {{ mf.member.display_name }}
+          </span>
+        </h2>
+        {% if mf.entry %}
+          <span class="badge badge-open">Submitted</span>
+        {% else %}
+          <span class="badge badge-neutral">Pending</span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <form method="post" action="{% url 'ae_daily_submit' %}">
+          {% csrf_token %}
+          <input type="hidden" name="member" value="{{ mf.member.id }}">
+          <input type="hidden" name="entry_date" value="{{ sel_date }}">
+          <input type="hidden" name="from_d" value="{{ from }}">
+          <input type="hidden" name="to_d" value="{{ to }}">
+
+          <div class="gap-stack">
+            {% for fr in mf.field_rows %}
+            <div class="form-row">
+              <label>{{ fr.label }}</label>
+              <input type="number" name="{{ fr.field }}" min="0" class="field" value="{{ fr.value }}">
+            </div>
+            {% endfor %}
+            <div class="form-row">
+              <label>Notes <span class="label-hint">(optional)</span></label>
+              <textarea name="notes" rows="2" class="field" placeholder="Any notes for today">{{ mf.notes|default:'' }}</textarea>
+            </div>
+          </div>
+
+          <div class="form-actions" style="margin-top:16px;">
+            <button type="submit" class="btn btn-primary btn-sm">
+              {% if mf.entry %}Update{% else %}Submit{% endif %}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% empty %}
+    <div class="card">
+      <div class="card-body">
+        <div class="empty-state">
+          <div class="icon">&#128202;</div>
+          <p>No Application Engineers configured.<br>
+          Go to <a href="/admin/tracker/member/" class="link-jira">Admin &rarr; Members</a> and set role to <strong>Application Engineer</strong>.</p>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Date-range summary: totals per metric per member -->
+{% if ae_members %}
+<div class="card mb-section">
+  <div class="card-head">
+    <h2>Totals &mdash; {{ from }} to {{ to }}</h2>
+    <a href="{% url 'ae_daily_export' %}?from={{ from }}&to={{ to }}" class="btn btn-secondary btn-sm">&#8659;&nbsp;Excel</a>
+  </div>
+  <div class="tbl-scroll">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th style="min-width:260px;">Metric</th>
+          {% for m in ae_members %}
+          <th style="min-width:140px;">{{ m.display_name }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in summary_rows %}
+        <tr>
+          <td class="text-sm">{{ row.label }}</td>
+          {% for val in row.values %}
+          <td class="td-center"><span class="num-em">{{ val }}</span></td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Daily log table -->
+{% if daily_rows %}
+<div class="card">
+  <div class="card-head">
+    <h2>Daily Log &mdash; {{ from }} to {{ to }}</h2>
+  </div>
+  <div class="tbl-scroll">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Date</th>
+          {% for m in ae_members %}
+            {% for field, label in fields %}
+            <th style="min-width:120px;font-size:9px;">{{ m.display_name }}<br>{{ label }}</th>
+            {% endfor %}
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for dr in daily_rows %}
+        <tr>
+          <td class="mono">{{ dr.date }}</td>
+          {% for me in dr.member_entries %}
+            {% if me.entry %}
+              <td class="td-center">{{ me.entry.setter_enhancements }}</td>
+              <td class="td-center">{{ me.entry.he_support_replies }}</td>
+              <td class="td-center">{{ me.entry.eng_assessment_replies }}</td>
+              <td class="td-center">{{ me.entry.facecode_replies }}</td>
+              <td class="td-center">{{ me.entry.data_requests_replies }}</td>
+              <td class="td-center">{{ me.entry.redash_queries }}</td>
+              <td class="td-center">{{ me.entry.bug_fixes }}</td>
+              <td class="td-center">{{ me.entry.deployments }}</td>
+              <td class="td-center">{{ me.entry.setter_enhancements_count }}</td>
+              <td class="td-center">{{ me.entry.utilities }}</td>
+            {% else %}
+              {% for field, label in fields %}<td class="td-center muted">&mdash;</td>{% endfor %}
+            {% endif %}
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}

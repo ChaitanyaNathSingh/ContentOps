@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import DailyEntry, EntryItem, Member
+from .models import DailyEntry, EntryItem, Member, AEDailyUpdate
 
 
 class EntryItemInline(admin.TabularInline):
@@ -9,8 +9,8 @@ class EntryItemInline(admin.TabularInline):
 
 @admin.register(Member)
 class MemberAdmin(admin.ModelAdmin):
-    list_display = ('display_name', 'is_active', 'created_at')
-    list_filter = ('is_active',)
+    list_display = ('display_name', 'role', 'is_active', 'created_at')
+    list_filter = ('is_active', 'role')
     search_fields = ('display_name',)
 
 
@@ -21,3 +21,11 @@ class DailyEntryAdmin(admin.ModelAdmin):
     search_fields = ('raw_text', 'member__display_name')
     date_hierarchy = 'entry_date'
     inlines = [EntryItemInline]
+
+
+@admin.register(AEDailyUpdate)
+class AEDailyUpdateAdmin(admin.ModelAdmin):
+    list_display = ('entry_date', 'member', 'setter_enhancements', 'bug_fixes', 'deployments', 'updated_at')
+    list_filter = ('entry_date', 'member')
+    search_fields = ('member__display_name',)
+    date_hierarchy = 'entry_date'
