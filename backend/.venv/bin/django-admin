@@ -1,4 +1,4 @@
-#!/Users/hackerearth453/Documents/ContentDashboard/backend/.venv/bin/python3
+#!/Users/hackerearth453/Documents/ContentOps/backend/.venv/bin/python3.13
 # -*- coding: utf-8 -*-
 import re
 import sys

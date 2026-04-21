@@ -227,6 +227,7 @@ def dashboard(request):
                     'status': it.status,
                     'jira_key': jk,
                     'jira_url': ju,
+                    'is_extra': e.kind == 'update' and it.plan_item_id is None,
                 })
 
     kpis = {
@@ -437,9 +438,6 @@ def entry_create(request, kind):
                     task_type = (f.get('task_type') or '').strip()
                     if not task_type:
                         continue
-                    extra_status = f.get('status') or 'open'
-                    if extra_status not in ('open', 'in_progress', 'blocked', 'closed'):
-                        extra_status = 'open'
                     it = EntryItem.objects.create(
                         entry=entry,
                         task_type=task_type,
@@ -448,13 +446,15 @@ def entry_create(request, kind):
                         count=f.get('count') or None,
                         notes=(f.get('notes') or '').strip() or None,
                         due_at=f.get('due_at') or None,
-                        status=extra_status,
+                        status='closed',
                     )
                     jr = create_item_issue(entry, it)
                     if jr.get('ok'):
                         it.jira_issue_key = jr['key']
                         it.jira_issue_url = jr['url']
                         it.save(update_fields=['jira_issue_key', 'jira_issue_url'])
+                        from .jira_client import sync_item_jira_status
+                        sync_item_jira_status(it, 'closed')
                     elif jr.get('error'):
                         jira_msgs.append(f"{task_type}: {jr['error']}")
                 messages.success(request, 'Update saved.')
@@ -605,6 +605,10 @@ def update_status(request):
             pk=int(item_raw),
         )
         if item.entry_id != entry_id:
+            return redirect(request.META.get('HTTP_REFERER', '/'))
+        if item.entry.kind == 'update' and item.plan_item_id is None:
+            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                return JsonResponse({'ok': False, 'error': 'Extra tasks are always Done.'})
             return redirect(request.META.get('HTTP_REFERER', '/'))
         item.status = new_status
         item.save(update_fields=['status'])
@@ -1139,55 +1143,83 @@ def ae_daily_export(request):
     ws = wb.active
     ws.title = 'AE Daily'
 
-    HDR_FILL = PatternFill('solid', fgColor='0F1620')
-    HDR_FONT = Font(name='Calibri', bold=True, color='4FFFB0', size=10)
-    CELL_FONT = Font(name='Calibri', size=10)
+    HDR_FILL   = PatternFill('solid', fgColor='0F1620')
+    HDR_FONT   = Font(name='Calibri', bold=True, color='4FFFB0', size=10)
+    DATE_FONT  = Font(name='Calibri', bold=True, color='FFFFFF', size=10)
+    NAME_FILL  = PatternFill('solid', fgColor='162032')
+    NAME_FONT  = Font(name='Calibri', bold=True, color='9ECFFF', size=10)
+    CELL_FONT  = Font(name='Calibri', size=10)
     METRIC_FONT = Font(name='Calibri', size=10, bold=True)
-    BORDER = Border(bottom=Side(style='thin', color='1A2535'))
-    ALT_FILL = PatternFill('solid', fgColor='0C1117')
+    BORDER     = Border(bottom=Side(style='thin', color='1A2535'))
+    ALT_FILL   = PatternFill('solid', fgColor='0C1117')
 
-    # Columns: Date | metric_member1 | metric_member2 | ... (one col per member per metric)
-    # Layout: Date | [Ayush: Setter Enh] | [Ayush: #he_support] | ... | [Chaitanya: Setter Enh] | ...
-    headers = ['Date']
-    col_widths = [13]
-    for m in ae_members:
-        for _, lbl in AE_FIELDS:
-            headers.append(f"{m.display_name}\n{lbl}")
-            col_widths.append(22)
-
-    for ci, (h, w) in enumerate(zip(headers, col_widths), 1):
-        cell = ws.cell(row=1, column=ci, value=h)
-        cell.fill = HDR_FILL
-        cell.font = HDR_FONT
-        cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
-        cell.border = BORDER
-        ws.column_dimensions[get_column_letter(ci)].width = w
-
-    ws.row_dimensions[1].height = 40
-    ws.freeze_panes = 'B2'
+    # Layout:
+    #   Row 1 (date header):  Metric | <date merged across N members> | <date> | ...
+    #   Row 2 (name header):  (blank) | Member1 | Member2 | ... | Member1 | Member2 | ...
+    #   Row 3+:               metric label | values ...
 
     sorted_dates = sorted(by_date.keys())
-    for ri, ds in enumerate(sorted_dates, 2):
-        fill = ALT_FILL if ri % 2 == 0 else None
-        c = ws.cell(row=ri, column=1, value=ds)
-        c.font = CELL_FONT
-        c.border = BORDER
-        if fill:
-            c.fill = fill
-        ci = 2
-        for m in ae_members:
-            entry = by_date[ds].get(m.display_name)
-            for field, _ in AE_FIELDS:
-                val = getattr(entry, field, 0) if entry else ''
-                cell = ws.cell(row=ri, column=ci, value=val)
-                cell.font = CELL_FONT
-                cell.alignment = Alignment(horizontal='center', vertical='center')
-                cell.border = BORDER
-                if fill:
-                    cell.fill = fill
-                ci += 1
+    n_members = len(ae_members)
 
-    ws.auto_filter.ref = f'A1:{get_column_letter(len(headers))}1'
+    # col 1 = Metric label; then n_members cols per date
+    ws.column_dimensions['A'].width = 36
+    ws.cell(row=1, column=1, value='Metric').fill = HDR_FILL
+    ws.cell(row=1, column=1).font = HDR_FONT
+    ws.cell(row=1, column=1).alignment = Alignment(horizontal='left', vertical='center')
+    ws.cell(row=2, column=1, value='').fill = HDR_FILL
+
+    for di, ds in enumerate(sorted_dates):
+        base_col = 2 + di * n_members  # first member col for this date
+
+        # Row 1: date label merged across member columns
+        date_cell = ws.cell(row=1, column=base_col, value=ds)
+        date_cell.fill = HDR_FILL
+        date_cell.font = DATE_FONT
+        date_cell.alignment = Alignment(horizontal='center', vertical='center')
+        date_cell.border = BORDER
+        if n_members > 1:
+            ws.merge_cells(
+                start_row=1, start_column=base_col,
+                end_row=1,   end_column=base_col + n_members - 1,
+            )
+
+        # Row 2: member names
+        for mi, m in enumerate(ae_members):
+            nc = base_col + mi
+            c = ws.cell(row=2, column=nc, value=m.display_name)
+            c.fill = NAME_FILL
+            c.font = NAME_FONT
+            c.alignment = Alignment(horizontal='center', vertical='center')
+            c.border = BORDER
+            ws.column_dimensions[get_column_letter(nc)].width = 14
+
+    ws.row_dimensions[1].height = 22
+    ws.row_dimensions[2].height = 18
+    ws.freeze_panes = 'B3'
+
+    # Data rows: one row per metric
+    for fi, (field, label) in enumerate(AE_FIELDS):
+        ri = 3 + fi
+        fill = ALT_FILL if fi % 2 == 0 else None
+
+        metric_cell = ws.cell(row=ri, column=1, value=label)
+        metric_cell.font = METRIC_FONT
+        metric_cell.border = BORDER
+        if fill:
+            metric_cell.fill = fill
+
+        for di, ds in enumerate(sorted_dates):
+            base_col = 2 + di * n_members
+            date_entries = by_date[ds]
+            for mi, m in enumerate(ae_members):
+                entry = date_entries.get(m.display_name)
+                val = getattr(entry, field, 0) if entry else ''
+                c = ws.cell(row=ri, column=base_col + mi, value=val)
+                c.font = CELL_FONT
+                c.alignment = Alignment(horizontal='center', vertical='center')
+                c.border = BORDER
+                if fill:
+                    c.fill = fill
 
     response = HttpResponse(
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -1200,121 +1232,172 @@ def ae_daily_export(request):
 
 # ── Content Requests board ────────────────────────────────────────────────────
 
+_CONTENT_REQUESTS_FIELDS = 'summary,status,assignee,priority,created,updated,labels,issuetype,duedate'
+
+
+def _parse_cr_issues(raw_issues, cfg, sel_status, sel_assignee, from_d, to_d, sel_priority=''):
+    """Parse raw Jira issue list into display dicts and stats."""
+    issues = []
+    stats = {'total': 0, 'by_status': {}, 'by_assignee': {}, 'by_priority': {}}
+    all_statuses = set()
+    all_assignees = set()
+    all_priorities = set()
+
+    for issue in raw_issues:
+        fields = issue.get('fields') or {}
+        status_name = ((fields.get('status') or {}).get('name') or 'Unknown')
+        assignee_obj = fields.get('assignee') or {}
+        assignee_name = (assignee_obj.get('displayName') or assignee_obj.get('name') or 'Unassigned')
+        priority_obj = fields.get('priority') or {}
+        priority_name = (priority_obj.get('name') or 'None')
+        created = (fields.get('created') or '')[:10]
+        updated = (fields.get('updated') or '')[:10]
+
+        # Collect all options before filtering
+        all_statuses.add(status_name)
+        all_assignees.add(assignee_name)
+        all_priorities.add(priority_name)
+
+        if sel_status and status_name.lower() != sel_status.lower():
+            continue
+        if sel_assignee and assignee_name.lower() != sel_assignee.lower():
+            continue
+        if sel_priority and priority_name.lower() != sel_priority.lower():
+            continue
+        if from_d or to_d:
+            issue_date = _parse_date(created)
+            if issue_date:
+                if from_d and issue_date < from_d:
+                    continue
+                if to_d and issue_date > to_d:
+                    continue
+
+        issuetype_name = ((fields.get('issuetype') or {}).get('name') or '')
+        duedate = (fields.get('duedate') or '')
+        issues.append({
+            'key': issue.get('key', ''),
+            'url': f"{cfg['base_url']}/browse/{issue.get('key', '')}",
+            'summary': fields.get('summary', ''),
+            'status': status_name,
+            'assignee': assignee_name,
+            'assignee_initial': assignee_name[:1].upper() if assignee_name else '?',
+            'priority': priority_name,
+            'issuetype': issuetype_name,
+            'created': created,
+            'updated': updated,
+            'duedate': duedate,
+        })
+        stats['total'] += 1
+        stats['by_status'][status_name] = stats['by_status'].get(status_name, 0) + 1
+        stats['by_assignee'][assignee_name] = stats['by_assignee'].get(assignee_name, 0) + 1
+        stats['by_priority'][priority_name] = stats['by_priority'].get(priority_name, 0) + 1
+    return issues, stats, sorted(all_statuses), sorted(all_assignees), sorted(all_priorities)
+
+
 @login_required
 def content_requests(request):
-    """Fetch issues from the Content Requests Jira board and display them with analytics."""
+    """Display issues from the Content Requests Jira board with analytics."""
     from .jira_client import load_jira_settings, _jira_request
 
     today = date.today()
-    from_d = _parse_date(request.GET.get('from'), default=today.replace(day=1))
-    to_d   = _parse_date(request.GET.get('to'),   default=today)
-    sel_status = (request.GET.get('status') or '').strip()
+    from_d = _parse_date(request.GET.get('from'))
+    to_d   = _parse_date(request.GET.get('to'))
+    sel_status   = (request.GET.get('status') or '').strip()
     sel_assignee = (request.GET.get('assignee') or '').strip()
+    sel_priority = (request.GET.get('priority') or '').strip()
 
     issues = []
     error_msg = None
+    debug_info = []
     stats = {'total': 0, 'by_status': {}, 'by_assignee': {}, 'by_priority': {}}
+    all_statuses, all_assignees, all_priorities = [], [], []
 
     cfg = load_jira_settings()
-    if cfg:
-        # Find board ID by name via Agile API
-        ok_b, body_b = _jira_request(cfg, '/rest/agile/1.0/board?maxResults=50', 'GET')
-        board_id = None
-        if ok_b:
-            for board in (body_b.get('values') or []):
-                if (board.get('name') or '').strip().lower() == 'content requests':
-                    board_id = board.get('id')
-                    break
-
-        ok = False
-        body = {}
-        if board_id:
-            ok, body = _jira_request(
-                cfg,
-                f'/rest/agile/1.0/board/{board_id}/issue?maxResults=200&fields=summary,status,assignee,priority,created,updated,labels,issuetype',
-                'GET',
-            )
-        if not ok:
-            # Fallback: search by label
-            jql = 'project = TCE AND labels = "Content Requests" ORDER BY created DESC'
-            ok, body = _jira_request(
-                cfg,
-                f'/rest/api/3/search?jql={urllib.request.quote(jql)}&maxResults=200&fields=summary,status,assignee,priority,created,updated,labels,issuetype',
-                'GET',
-            )
-        if not ok:
-            error_msg = 'Could not fetch Content Requests from Jira. Check that the board name is exactly "Content Requests" in your Jira workspace.'
-
-        if ok:
-            raw_issues = body.get('issues') or []
-            for issue in raw_issues:
-                fields = issue.get('fields') or {}
-                status_name = ((fields.get('status') or {}).get('name') or 'Unknown')
-                assignee_obj = fields.get('assignee') or {}
-                assignee_name = (assignee_obj.get('displayName') or assignee_obj.get('name') or 'Unassigned')
-                priority_obj = fields.get('priority') or {}
-                priority_name = (priority_obj.get('name') or 'None')
-                created = (fields.get('created') or '')[:10]
-                updated = (fields.get('updated') or '')[:10]
-                labels = fields.get('labels') or []
-
-                # Apply filters
-                if sel_status and status_name.lower() != sel_status.lower():
-                    continue
-                if sel_assignee and assignee_name.lower() != sel_assignee.lower():
-                    continue
-                if from_d or to_d:
-                    issue_date = _parse_date(created)
-                    if issue_date:
-                        if from_d and issue_date < from_d:
-                            continue
-                        if to_d and issue_date > to_d:
-                            continue
-
-                issues.append({
-                    'key': issue.get('key', ''),
-                    'url': f"{cfg['base_url']}/browse/{issue.get('key', '')}",
-                    'summary': fields.get('summary', ''),
-                    'status': status_name,
-                    'assignee': assignee_name,
-                    'priority': priority_name,
-                    'created': created,
-                    'updated': updated,
-                    'labels': labels,
-                })
-
-                stats['total'] += 1
-                stats['by_status'][status_name] = stats['by_status'].get(status_name, 0) + 1
-                stats['by_assignee'][assignee_name] = stats['by_assignee'].get(assignee_name, 0) + 1
-                stats['by_priority'][priority_name] = stats['by_priority'].get(priority_name, 0) + 1
-    else:
+    if not cfg:
         error_msg = 'Jira is not configured. Check JIRA_API_TOKEN in backend/.env.'
+    else:
+        seen_keys = set()
+        raw_issues = []
 
-    # Build sorted lists for charts
-    status_items = sorted(stats['by_status'].items(), key=lambda x: -x[1])
+        # ── Fetch 2026+ Content Requests issues via JQL ──
+        jql_2026 = 'project = TCE AND issuetype = "Content Requests" AND created >= "2026-01-01" ORDER BY created DESC'
+        ok_j, body_j = _jira_request(
+            cfg,
+            f'/rest/api/3/search/jql?jql={urllib.request.quote(jql_2026)}&maxResults=200&fields={_CONTENT_REQUESTS_FIELDS}',
+            'GET',
+        )
+        if ok_j:
+            for iss in (body_j.get('issues') or []):
+                k = iss.get('key', '')
+                if k and k not in seen_keys:
+                    seen_keys.add(k)
+                    raw_issues.append(iss)
+            debug_info.append(f'2026 JQL: got {len(body_j.get("issues") or [])} issues')
+        else:
+            debug_info.append(f'2026 JQL failed: {body_j}')
+
+        # ── Also fetch Content Requests board (historical data) ──
+        start_at = 0
+        while True:
+            ok_b, body_b = _jira_request(
+                cfg, f'/rest/agile/1.0/board?maxResults=50&startAt={start_at}', 'GET'
+            )
+            if not ok_b:
+                break
+            boards = body_b.get('values') or []
+            for board in boards:
+                if (board.get('name') or '').strip().lower() == 'content requests':
+                    bid = board.get('id')
+                    ok_i, body_i = _jira_request(
+                        cfg,
+                        f'/rest/agile/1.0/board/{bid}/issue?maxResults=200&fields={_CONTENT_REQUESTS_FIELDS}',
+                        'GET',
+                    )
+                    if ok_i:
+                        for iss in (body_i.get('issues') or []):
+                            k = iss.get('key', '')
+                            if k and k not in seen_keys:
+                                seen_keys.add(k)
+                                raw_issues.append(iss)
+                        debug_info.append(f'Board id={bid}: got {len(body_i.get("issues") or [])} issues')
+                    break
+            total = body_b.get('total', 0)
+            start_at += len(boards)
+            if not boards or start_at >= total:
+                break
+
+        if not raw_issues:
+            error_msg = 'No issues found. Check Jira config or project key.'
+
+        if raw_issues:
+            issues, stats, all_statuses, all_assignees, all_priorities = _parse_cr_issues(
+                raw_issues, cfg, sel_status, sel_assignee, from_d, to_d, sel_priority
+            )
+
+    status_items   = sorted(stats['by_status'].items(),   key=lambda x: -x[1])
     assignee_items = sorted(stats['by_assignee'].items(), key=lambda x: -x[1])
     priority_items = sorted(stats['by_priority'].items(), key=lambda x: -x[1])
 
-    unique_statuses = [s for s, _ in status_items]
-    unique_assignees = [a for a, _ in assignee_items]
-
     import json as _json
     return render(request, 'tracker/content_requests.html', {
-        'issues': issues,
-        'error_msg': error_msg,
-        'stats': stats,
-        'status_items': status_items,
-        'assignee_items': assignee_items,
-        'priority_items': priority_items,
-        'unique_statuses': unique_statuses,
-        'unique_assignees': unique_assignees,
-        'from': from_d.isoformat() if from_d else '',
-        'to': to_d.isoformat() if to_d else '',
-        'sel_status': sel_status,
-        'sel_assignee': sel_assignee,
+        'issues':           issues,
+        'error_msg':        error_msg,
+        'debug_info':       debug_info,
+        'stats':            stats,
+        'status_items':     status_items,
+        'assignee_items':   assignee_items,
+        'priority_items':   priority_items,
+        'unique_statuses':   all_statuses,
+        'unique_assignees':  all_assignees,
+        'unique_priorities': all_priorities,
+        'from':             from_d.isoformat() if from_d else '',
+        'to':               to_d.isoformat() if to_d else '',
+        'sel_status':       sel_status,
+        'sel_assignee':     sel_assignee,
+        'sel_priority':     sel_priority,
         'stats_json': mark_safe(_json.dumps({
-            'by_status': dict(status_items),
-            'by_assignee': dict(assignee_items),
-            'by_priority': dict(priority_items),
+            'by_status':    dict(status_items),
+            'by_assignee':  dict(assignee_items),
+            'by_priority':  dict(priority_items),
         })),
     })

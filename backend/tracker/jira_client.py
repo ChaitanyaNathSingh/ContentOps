@@ -8,9 +8,12 @@ import base64
 import json
 import logging
 import os
+import ssl
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+import certifi
 
 from django.conf import settings as dj_settings
 
@@ -118,8 +121,9 @@ def _jira_request(cfg, path, method="GET", payload=None, timeout=20):
         headers=_auth_header(cfg),
         method=method,
     )
+    ctx = ssl.create_default_context(cafile=certifi.where())
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
             body = resp.read().decode("utf-8")
             return True, json.loads(body) if body else {}
     except urllib.error.HTTPError as e:
@@ -213,6 +217,58 @@ def create_item_issue(entry, item):
     return {"ok": True, "key": key, "url": browse}
 
 
+_DONE_CARRY_FIELDS = (
+    "summary,reporter,customfield_10230,customfield_10233,"
+    "customfield_10234,customfield_10235,customfield_10521,customfield_10526"
+)
+
+
+def _fetch_done_fields(cfg, issue_key, due_at=None):
+    """Return a fields dict safe to pass when transitioning to Done.
+
+    The TCE Jira workflow validators require Task Type, Question type,
+    Test count, and Effort Logged even though the schema marks them optional.
+    We carry existing values back and fall back to neutral defaults so the
+    transition never fails due to missing fields.
+    """
+    ok, body = _jira_request(cfg, f"/rest/api/3/issue/{issue_key}?fields={_DONE_CARRY_FIELDS}", "GET")
+    f = (body.get("fields") or {}) if ok else {}
+
+    fields = {}
+
+    # Task Type (select) — required by validator
+    task_type = f.get("customfield_10230")
+    if task_type and task_type.get("id"):
+        fields["customfield_10230"] = {"id": task_type["id"]}
+
+    # Question type (multi-select) — validator requires at least one value
+    raw_qt = f.get("customfield_10235")
+    if raw_qt:
+        if isinstance(raw_qt, list) and raw_qt:
+            fields["customfield_10235"] = [{"id": str(v["id"])} for v in raw_qt if v.get("id")]
+        elif isinstance(raw_qt, dict) and raw_qt.get("id"):
+            fields["customfield_10235"] = [{"id": str(raw_qt["id"])}]
+    if "customfield_10235" not in fields:
+        # Fall back to "Diagram" (id 10244) — a neutral default
+        fields["customfield_10235"] = [{"id": "10244"}]
+
+    # Question count
+    fields["customfield_10233"] = f.get("customfield_10233") or 0
+
+    # Test count — validator requires a value; default to 0
+    fields["customfield_10234"] = f.get("customfield_10234") or 0
+
+    # Effort Logged — validator requires a value; default to 0
+    fields["customfield_10526"] = f.get("customfield_10526") or 0
+
+    # Due At
+    due_val = due_at.isoformat() if due_at else (f.get("customfield_10521") or "")
+    if due_val:
+        fields["customfield_10521"] = str(due_val)[:10]
+
+    return fields
+
+
 def transition_issue(issue_key, app_status: str, *, comment=None, due_at=None):
     """
     Move a Jira issue toward a workflow state that matches Content Dashboard status
@@ -252,31 +308,81 @@ def transition_issue(issue_key, app_status: str, *, comment=None, due_at=None):
                 break
 
     if not chosen:
-        names = [((x.get("to") or {}).get("name")) for x in transitions]
-        return {
-            "ok": False,
-            "error": (
-                f"No Jira transition to match status “{st}”. "
-                f"Available targets: {names}. "
-                "Set JIRA_STATUS_TO_JIRA_NAMES in jira_config.py if your workflow uses other names."
-            ),
-        }
+        # Workflow may require stepping through an intermediate state first.
+        # e.g. TO DO -> In Progress -> Done (Done only appears after In Progress).
+        if st == "closed":
+            in_progress_names = {
+                n.lower()
+                for n in (cfg["status_name_map"].get("in_progress")
+                          or _DEFAULT_JIRA_STATUS_NAMES.get("in_progress", []))
+            }
+            step_t = None
+            for t in transitions:
+                to_name = ((t.get("to") or {}).get("name") or "").strip().lower()
+                if to_name in in_progress_names or any(w in to_name for w in in_progress_names):
+                    step_t = t
+                    break
+            if step_t:
+                # Find due-at field key from the step transition's fields
+                step_fields = step_t.get("fields") or {}
+                step_due_key = None
+                for fk, fv in step_fields.items():
+                    fname = str((fv or {}).get("name") or "").strip().lower()
+                    if "due" in fname:
+                        step_due_key = fk
+                        break
+                step_payload = {"transition": {"id": step_t.get("id")}}
+                if due_at and step_due_key:
+                    step_payload["fields"] = {step_due_key: due_at.isoformat()}
+                elif due_at:
+                    step_payload["fields"] = {"customfield_10521": due_at.isoformat()}
+                step_comment = comment or "Moving to Done"
+                step_payload["update"] = {
+                    "comment": [{"add": {"body": _text_to_adf(step_comment)}}]
+                }
+                ok_step, body_step = _jira_request(
+                    cfg, f"/rest/api/3/issue/{issue_key}/transitions", "POST", step_payload
+                )
+                if ok_step:
+                    # Re-fetch transitions after stepping to In Progress
+                    ok_r, body_r = _jira_request(
+                        cfg, f"/rest/api/3/issue/{issue_key}/transitions?expand=transitions.fields", "GET"
+                    )
+                    if ok_r:
+                        transitions = body_r.get("transitions") or []
+                        for t in transitions:
+                            to_name = ((t.get("to") or {}).get("name") or "").strip()
+                            if to_name.lower() in want_lower:
+                                chosen = t
+                                break
+
+        if not chosen:
+            names = [((x.get("to") or {}).get("name")) for x in transitions]
+            return {
+                "ok": False,
+                "error": (
+                    f"No Jira transition to match status \"{st}\". "
+                    f"Available targets: {names}. "
+                    "Set JIRA_STATUS_TO_JIRA_NAMES in jira_config.py if your workflow uses other names."
+                ),
+            }
 
     tid = chosen.get("id")
     payload = {"transition": {"id": tid}}
-    chosen_fields = chosen.get("fields") or {}
-    due_key = None
-    if chosen_fields:
+    if st == "closed":
+        carry = _fetch_done_fields(cfg, issue_key, due_at=due_at)
+        if carry:
+            payload["fields"] = carry
+    else:
+        chosen_fields = chosen.get("fields") or {}
+        due_key = None
         for fk, fv in chosen_fields.items():
             name = str((fv or {}).get("name") or "").strip().lower()
             if name in ("due date", "due at") or ("due" in name and "date" in name):
                 due_key = fk
                 break
-    if due_at and due_key:
-        try:
+        if due_at and due_key:
             payload["fields"] = {due_key: due_at.isoformat()}
-        except Exception:
-            pass
     if comment and str(comment).strip():
         payload["update"] = {
             "comment": [{"add": {"body": _text_to_adf(str(comment).strip())}}]

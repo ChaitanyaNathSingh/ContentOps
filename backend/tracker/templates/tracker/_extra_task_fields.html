@@ -5,10 +5,6 @@
     {% if f.task_type.errors %}<div class="form-errors">{{ f.task_type.errors|join:", " }}</div>{% endif %}
   </div>
   <div class="form-row">
-    <label>Status</label>
-    {{ f.status }}
-  </div>
-  <div class="form-row">
     <label>Question type</label>
     {{ f.question_type }}
   </div>

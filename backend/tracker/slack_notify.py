@@ -73,56 +73,51 @@ def _fmt(v, fallback="—"):
     return str(v).strip() if v is not None and str(v).strip() else fallback
 
 
-def _format_item_block(it, include_status=False):
-    lines = [
-        "------------------------------",
-        f"Task Name: {_fmt(it.task_type)}",
-        f"Customer Name: {_fmt(it.customer)}",
-        f"Work Type: {_fmt('Plan Task' if not it.plan_item_id else 'Planned Update')}",
-        f"Question Type: {_fmt(it.question_type)}",
-        f"Count: {_fmt(it.count)}",
-    ]
+def _format_item_line(n, it, include_status=False):
+    parts = []
+    if it.jira_issue_key and it.jira_issue_url:
+        parts.append(f"<{it.jira_issue_url}|{it.jira_issue_key}>")
+    elif it.jira_issue_key:
+        parts.append(it.jira_issue_key)
+    parts.append(_fmt(it.task_type))
+    if it.customer and str(it.customer).strip():
+        parts.append(_fmt(it.customer))
+    if it.question_type and str(it.question_type).strip():
+        parts.append(_fmt(it.question_type))
+    if it.count is not None:
+        parts.append(f"Count: {it.count}")
     if include_status:
         status_label = _fmt(getattr(it, "status", "")).replace("_", " ").title()
-        lines.append(f"Status: {status_label}")
-    lines.append(f"Notes: {_fmt(it.notes)}")
-    if it.jira_issue_key and it.jira_issue_url:
-        lines.append(f"Jira: <{it.jira_issue_url}|{it.jira_issue_key}>")
-    elif it.jira_issue_key:
-        lines.append(f"Jira: {it.jira_issue_key}")
-    return "\n".join(lines)
+        parts.append(status_label)
+    line = f"{n}. " + " · ".join(parts)
+    if it.notes and str(it.notes).strip():
+        line += f"\n    _{_fmt(it.notes)}_"
+    return line
 
 
 def format_plan_thread(entry):
-    lines = [f"*{entry.member.display_name}* · 📋 Plan for {entry.entry_date}"]
+    lines = [f"*{entry.member.display_name}* — 📋 Plan for {entry.entry_date}"]
     items = list(entry.items.all())
     if items:
-        for it in items:
-            lines.append(_format_item_block(it, include_status=False))
+        for n, it in enumerate(items, 1):
+            lines.append(_format_item_line(n, it, include_status=False))
     elif entry.raw_text:
         lines.append(entry.raw_text)
     else:
         lines.append("_No tasks logged yet._")
-    if entry.jira_issue_url and not any(
-        getattr(x, "jira_issue_url", None) for x in items
-    ):
-        lines.append(f"\n🔗 Jira: {entry.jira_issue_url}")
     return "\n".join(lines)
 
 
 def format_update_thread(entry):
-    lines = [f"*{entry.member.display_name}* · ✅ Update for {entry.entry_date}"]
+    lines = [f"*{entry.member.display_name}* — ✅ Update for {entry.entry_date}"]
     items = list(entry.items.all())
     if items:
-        for it in items:
-            lines.append(_format_item_block(it, include_status=True))
+        for n, it in enumerate(items, 1):
+            lines.append(_format_item_line(n, it, include_status=True))
     elif entry.raw_text:
         lines.append(entry.raw_text)
     else:
         lines.append("_No update logged yet._")
-
-    status_label = entry.status.replace("_", " ").title()
-    lines.append(f"\nStatus: *{status_label}*")
     return "\n".join(lines)
 
 

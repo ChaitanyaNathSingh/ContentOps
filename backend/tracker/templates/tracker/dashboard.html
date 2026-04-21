@@ -143,18 +143,24 @@
               <span class="wl-kind-pill wl-kind-pill--{{ r.kind }}">{{ r.kind|capfirst }}</span>
             </td>
             <td class="wl-td">
-              <button type="button"
-                class="wl-status-btn wl-status-btn--{{ r.status }} status-move-btn"
-                data-entry-id="{{ r.id }}"
-                data-item-id="{{ r.item_id|default:'' }}"
-                data-status="{{ r.status }}"
-                title="Click to move status">
-                <span class="wl-sdot wl-sdot--{{ r.status }}"></span>
-                {% if r.status == 'in_progress' %}In Prog
-                {% elif r.status == 'open' %}Open
-                {% elif r.status == 'blocked' %}Blocked
-                {% else %}Done{% endif %}
-              </button>
+              {% if r.is_extra %}
+                <span class="wl-status-btn wl-status-btn--closed" title="Extra tasks are always Done">
+                  <span class="wl-sdot wl-sdot--closed"></span>Done
+                </span>
+              {% else %}
+                <button type="button"
+                  class="wl-status-btn wl-status-btn--{{ r.status }} status-move-btn"
+                  data-entry-id="{{ r.id }}"
+                  data-item-id="{{ r.item_id|default:'' }}"
+                  data-status="{{ r.status }}"
+                  title="Click to move status">
+                  <span class="wl-sdot wl-sdot--{{ r.status }}"></span>
+                  {% if r.status == 'in_progress' %}In Prog
+                  {% elif r.status == 'open' %}Open
+                  {% elif r.status == 'blocked' %}Blocked
+                  {% else %}Done{% endif %}
+                </button>
+              {% endif %}
             </td>
             <td class="wl-td">
               <span class="wl-member">
