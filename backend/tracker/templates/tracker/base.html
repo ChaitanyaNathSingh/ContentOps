@@ -1094,7 +1094,7 @@
 
     <a href="{% url 'dashboard' %}?tab=graphs"
        class="drawer-item{% if request.GET.tab == 'graphs' %} active{% endif %}">
-      <span class="drawer-icon">&#9699;</span>Graphs
+      <span class="drawer-icon">&#9699;</span>Charts
     </a>
 
     <a href="{% url 'members_list' %}"
@@ -1102,9 +1102,9 @@
       <span class="drawer-icon">&#128101;</span>Members
     </a>
 
-    <a href="{% url 'reports' %}"
-       class="drawer-item{% if request.resolver_match.url_name == 'reports' %} active{% endif %}">
-      <span class="drawer-icon">&#128196;</span>Reports
+    <a href="{% url 'content_requests' %}"
+       class="drawer-item{% if request.resolver_match.url_name == 'content_requests' %} active{% endif %}">
+      <span class="drawer-icon">&#128203;</span>Content Requests
     </a>
 
     <a href="/admin/"

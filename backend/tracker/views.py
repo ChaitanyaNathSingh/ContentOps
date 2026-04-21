@@ -1,5 +1,6 @@
 import csv
 import json
+import urllib.request
 from datetime import date, timedelta
 
 from django.conf import settings
@@ -796,7 +797,7 @@ def export_xlsx(request):
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
     fname = f'content_dashboard_{from_d.isoformat()}_{to_d.isoformat()}.xlsx'
-    response['Content-Disposition'] = f'attachment; filename="{fname}"'
+    response['Content-Disposition'] = f"attachment; filename*=UTF-8''{fname}"
     wb.save(response)
     return response
 
@@ -976,7 +977,6 @@ AE_FIELDS = [
     ('redash_queries',           'Redash Queries'),
     ('bug_fixes',                'Bug Fixes'),
     ('deployments',              'Deployments'),
-    ('setter_enhancements_count','Setter Enhancements (count)'),
     ('utilities',                'Utilities'),
 ]
 
@@ -1193,6 +1193,128 @@ def ae_daily_export(request):
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
     fname = f'ae_daily_{from_d.isoformat()}_{to_d.isoformat()}.xlsx'
-    response['Content-Disposition'] = f'attachment; filename="{fname}"'
+    response['Content-Disposition'] = f"attachment; filename*=UTF-8''{fname}"
     wb.save(response)
     return response
+
+
+# ── Content Requests board ────────────────────────────────────────────────────
+
+@login_required
+def content_requests(request):
+    """Fetch issues from the Content Requests Jira board and display them with analytics."""
+    from .jira_client import load_jira_settings, _jira_request
+
+    today = date.today()
+    from_d = _parse_date(request.GET.get('from'), default=today.replace(day=1))
+    to_d   = _parse_date(request.GET.get('to'),   default=today)
+    sel_status = (request.GET.get('status') or '').strip()
+    sel_assignee = (request.GET.get('assignee') or '').strip()
+
+    issues = []
+    error_msg = None
+    stats = {'total': 0, 'by_status': {}, 'by_assignee': {}, 'by_priority': {}}
+
+    cfg = load_jira_settings()
+    if cfg:
+        # Find board ID by name via Agile API
+        ok_b, body_b = _jira_request(cfg, '/rest/agile/1.0/board?maxResults=50', 'GET')
+        board_id = None
+        if ok_b:
+            for board in (body_b.get('values') or []):
+                if (board.get('name') or '').strip().lower() == 'content requests':
+                    board_id = board.get('id')
+                    break
+
+        ok = False
+        body = {}
+        if board_id:
+            ok, body = _jira_request(
+                cfg,
+                f'/rest/agile/1.0/board/{board_id}/issue?maxResults=200&fields=summary,status,assignee,priority,created,updated,labels,issuetype',
+                'GET',
+            )
+        if not ok:
+            # Fallback: search by label
+            jql = 'project = TCE AND labels = "Content Requests" ORDER BY created DESC'
+            ok, body = _jira_request(
+                cfg,
+                f'/rest/api/3/search?jql={urllib.request.quote(jql)}&maxResults=200&fields=summary,status,assignee,priority,created,updated,labels,issuetype',
+                'GET',
+            )
+        if not ok:
+            error_msg = 'Could not fetch Content Requests from Jira. Check that the board name is exactly "Content Requests" in your Jira workspace.'
+
+        if ok:
+            raw_issues = body.get('issues') or []
+            for issue in raw_issues:
+                fields = issue.get('fields') or {}
+                status_name = ((fields.get('status') or {}).get('name') or 'Unknown')
+                assignee_obj = fields.get('assignee') or {}
+                assignee_name = (assignee_obj.get('displayName') or assignee_obj.get('name') or 'Unassigned')
+                priority_obj = fields.get('priority') or {}
+                priority_name = (priority_obj.get('name') or 'None')
+                created = (fields.get('created') or '')[:10]
+                updated = (fields.get('updated') or '')[:10]
+                labels = fields.get('labels') or []
+
+                # Apply filters
+                if sel_status and status_name.lower() != sel_status.lower():
+                    continue
+                if sel_assignee and assignee_name.lower() != sel_assignee.lower():
+                    continue
+                if from_d or to_d:
+                    issue_date = _parse_date(created)
+                    if issue_date:
+                        if from_d and issue_date < from_d:
+                            continue
+                        if to_d and issue_date > to_d:
+                            continue
+
+                issues.append({
+                    'key': issue.get('key', ''),
+                    'url': f"{cfg['base_url']}/browse/{issue.get('key', '')}",
+                    'summary': fields.get('summary', ''),
+                    'status': status_name,
+                    'assignee': assignee_name,
+                    'priority': priority_name,
+                    'created': created,
+                    'updated': updated,
+                    'labels': labels,
+                })
+
+                stats['total'] += 1
+                stats['by_status'][status_name] = stats['by_status'].get(status_name, 0) + 1
+                stats['by_assignee'][assignee_name] = stats['by_assignee'].get(assignee_name, 0) + 1
+                stats['by_priority'][priority_name] = stats['by_priority'].get(priority_name, 0) + 1
+    else:
+        error_msg = 'Jira is not configured. Check JIRA_API_TOKEN in backend/.env.'
+
+    # Build sorted lists for charts
+    status_items = sorted(stats['by_status'].items(), key=lambda x: -x[1])
+    assignee_items = sorted(stats['by_assignee'].items(), key=lambda x: -x[1])
+    priority_items = sorted(stats['by_priority'].items(), key=lambda x: -x[1])
+
+    unique_statuses = [s for s, _ in status_items]
+    unique_assignees = [a for a, _ in assignee_items]
+
+    import json as _json
+    return render(request, 'tracker/content_requests.html', {
+        'issues': issues,
+        'error_msg': error_msg,
+        'stats': stats,
+        'status_items': status_items,
+        'assignee_items': assignee_items,
+        'priority_items': priority_items,
+        'unique_statuses': unique_statuses,
+        'unique_assignees': unique_assignees,
+        'from': from_d.isoformat() if from_d else '',
+        'to': to_d.isoformat() if to_d else '',
+        'sel_status': sel_status,
+        'sel_assignee': sel_assignee,
+        'stats_json': mark_safe(_json.dumps({
+            'by_status': dict(status_items),
+            'by_assignee': dict(assignee_items),
+            'by_priority': dict(priority_items),
+        })),
+    })

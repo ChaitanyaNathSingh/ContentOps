@@ -17,6 +17,7 @@ urlpatterns = [
     path('members/', views.members_list, name='members_list'),
     path('members/<int:member_id>/', views.member_detail, name='member_detail'),
     path('reports/', views.reports, name='reports'),
+    path('content-requests/', views.content_requests, name='content_requests'),
 
     # AE daily updates
     path('ae/daily/', views.ae_daily, name='ae_daily'),

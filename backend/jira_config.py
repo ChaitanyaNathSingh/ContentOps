@@ -8,7 +8,7 @@ JIRA_EMAIL = "chaitanya.nath@hackerearth.com"
 JIRA_PROJECT_KEY = "TCE"
 JIRA_ISSUE_TYPE = "Content Tasks"
 JIRA_ISSUE_TYPE_ID = ""
-JIRA_SUMMARY_PREFIX = "[Content Plan]"
+JIRA_SUMMARY_PREFIX = "[Plan]"
 JIRA_BOARD_NAME = "Content Tasks"
 
 # Map Content Dashboard status -> Jira transition *destination* names (first match wins).

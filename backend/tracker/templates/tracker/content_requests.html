@@ -1,0 +1,253 @@
+{% extends "tracker/base.html" %}
+{% block title %}Content Requests{% endblock %}
+
+{% block nav_label %}
+<span class="nav-page-label">Content Requests</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-head page-head--split mb-section">
+  <div>
+    <h1>Content Requests</h1>
+    <p class="muted">Issues from the Content Requests Jira board</p>
+  </div>
+  <div class="toolbar-actions">
+    <span class="badge badge-neutral">{{ issues|length }} issue{{ issues|length|pluralize }}</span>
+  </div>
+</div>
+
+{% if error_msg %}
+<div class="card mb-section">
+  <div class="card-body">
+    <div class="empty-state">
+      <div class="icon">&#9888;</div>
+      <p>{{ error_msg }}</p>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Filters -->
+<div class="filters mb-section">
+  <form method="get" action="{% url 'content_requests' %}" id="cr-filter-form">
+    <div class="filter-row">
+      <div class="filter-group">
+        <label>From</label>
+        <input type="date" name="from" value="{{ from }}" class="field">
+      </div>
+      <div class="filter-group">
+        <label>To</label>
+        <input type="date" name="to" value="{{ to }}" class="field">
+      </div>
+      <div class="filter-group">
+        <label>Status</label>
+        <select name="status" class="field">
+          <option value="">All statuses</option>
+          {% for s in unique_statuses %}
+          <option value="{{ s }}"{% if sel_status == s %} selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Assignee</label>
+        <select name="assignee" class="field">
+          <option value="">All assignees</option>
+          {% for a in unique_assignees %}
+          <option value="{{ a }}"{% if sel_assignee == a %} selected{% endif %}>{{ a }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="filter-group filter-group--btn">
+        <label>&nbsp;</label>
+        <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+{% if not error_msg %}
+<!-- KPI row -->
+<div class="kpi-grid mb-section" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">
+  <div class="kpi">
+    <div class="kpi-label">Total</div>
+    <div class="kpi-value kpi-value--acc">{{ stats.total }}</div>
+    <div class="kpi-sub">requests</div>
+  </div>
+  {% for s, cnt in status_items %}
+  <div class="kpi">
+    <div class="kpi-label">{{ s }}</div>
+    <div class="kpi-value">{{ cnt }}</div>
+    <div class="kpi-sub">issues</div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Charts row -->
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px;">
+  <div class="card">
+    <div class="card-head"><h2>By Status</h2></div>
+    <div class="card-body" style="padding:16px;display:flex;flex-direction:column;align-items:center;gap:12px;">
+      <canvas id="chart-status" style="display:block"></canvas>
+      <div id="chart-status-legend" class="an-legend an-legend--compact" style="width:100%"></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>By Assignee</h2></div>
+    <div class="card-body" style="padding:16px;display:flex;flex-direction:column;align-items:center;gap:12px;">
+      <canvas id="chart-assignee" style="display:block"></canvas>
+      <div id="chart-assignee-legend" class="an-legend an-legend--compact" style="width:100%"></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>By Priority</h2></div>
+    <div class="card-body" style="padding:16px;display:flex;flex-direction:column;align-items:center;gap:12px;">
+      <canvas id="chart-priority" style="display:block"></canvas>
+      <div id="chart-priority-legend" class="an-legend an-legend--compact" style="width:100%"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Issues table -->
+<div class="card">
+  <div class="card-head">
+    <h2>Issues <span class="meta">{{ issues|length }} shown</span></h2>
+  </div>
+  {% if issues %}
+  <div class="tbl-scroll">
+    <table class="wl-tbl">
+      <thead>
+        <tr>
+          <th class="wl-th" style="width:90px;">Key</th>
+          <th class="wl-th">Summary</th>
+          <th class="wl-th" style="width:120px;">Status</th>
+          <th class="wl-th" style="width:140px;">Assignee</th>
+          <th class="wl-th" style="width:90px;">Priority</th>
+          <th class="wl-th" style="width:100px;">Created</th>
+          <th class="wl-th" style="width:100px;">Updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for issue in issues %}
+        <tr class="wl-tr{% cycle '' ' wl-tr--alt' %}">
+          <td class="wl-td">
+            <a href="{{ issue.url }}" target="_blank" rel="noopener noreferrer" class="wl-jira-link">{{ issue.key }}</a>
+          </td>
+          <td class="wl-td" style="max-width:320px;">
+            <span class="wl-notes-text" title="{{ issue.summary }}">{{ issue.summary }}</span>
+          </td>
+          <td class="wl-td">
+            <span class="wl-meta-chip">{{ issue.status }}</span>
+          </td>
+          <td class="wl-td">
+            <span class="wl-member">
+              <span class="wl-avatar">{{ issue.assignee|slice:":1"|upper }}</span>
+              <span class="wl-member-name">{{ issue.assignee }}</span>
+            </span>
+          </td>
+          <td class="wl-td">
+            {% if issue.priority == 'High' or issue.priority == 'Highest' %}
+              <span class="badge badge-danger">{{ issue.priority }}</span>
+            {% elif issue.priority == 'Medium' %}
+              <span class="badge badge-blocked">{{ issue.priority }}</span>
+            {% elif issue.priority == 'Low' or issue.priority == 'Lowest' %}
+              <span class="badge badge-neutral">{{ issue.priority }}</span>
+            {% else %}
+              <span class="badge badge-neutral">{{ issue.priority }}</span>
+            {% endif %}
+          </td>
+          <td class="wl-td"><span class="wl-date-chip">{{ issue.created }}</span></td>
+          <td class="wl-td"><span class="wl-date-chip">{{ issue.updated }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body">
+    <div class="empty-state">
+      <div class="icon">&#128203;</div>
+      <p>No Content Requests issues found{% if sel_status or sel_assignee %} matching your filters{% endif %}.</p>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script type="application/json" id="cr-stats-json">{{ stats_json }}</script>
+<style>
+.an-legend { display:flex; flex-direction:column; gap:6px; width:100%; }
+.an-legend--compact { font-size:11px; }
+.an-legend-item { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-2); }
+.an-legend-dot  { width:10px; height:10px; border-radius:3px; flex-shrink:0; }
+.an-legend-label{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.an-legend-val  { font-weight:700; color:var(--acc); }
+</style>
+<script>
+(function(){
+  var stats = JSON.parse(document.getElementById('cr-stats-json').textContent || '{}');
+  var PALETTE = ['#4fffb0','#6eb5ff','#ffd166','#c084fc','#ff6b7a',
+                 '#34d399','#60a5fa','#f59e0b','#a78bfa','#fb7185'];
+
+  function makeCtx(el, cssW, cssH) {
+    var r = window.devicePixelRatio || 1;
+    el.width = cssW * r; el.height = cssH * r;
+    el.style.width = cssW + 'px'; el.style.height = cssH + 'px';
+    var ctx = el.getContext('2d'); ctx.scale(r, r); return ctx;
+  }
+
+  function drawDonut(el, labels, values, colors) {
+    var size = 160;
+    el.style.width = size + 'px'; el.style.height = size + 'px';
+    var ctx = makeCtx(el, size, size);
+    var total = values.reduce(function(a,b){return a+b;}, 0);
+    if (!total) return;
+    var cx = size/2, cy = size/2, outerR = size/2 - 8, innerR = outerR * 0.54, gap = 0.02;
+    var start = -Math.PI/2;
+    values.forEach(function(v, i) {
+      var sweep = (v/total)*Math.PI*2 - gap;
+      ctx.beginPath(); ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, outerR, start+gap/2, start+gap/2+sweep);
+      ctx.arc(cx, cy, innerR, start+gap/2+sweep, start+gap/2, true);
+      ctx.closePath();
+      ctx.fillStyle = colors[i % colors.length]; ctx.globalAlpha = 0.9;
+      ctx.fill(); ctx.globalAlpha = 1;
+      start += (v/total)*Math.PI*2;
+    });
+    ctx.fillStyle = '#e8edf6'; ctx.font = 'bold 16px Inter,sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(total), cx, cy-7);
+    ctx.fillStyle = 'rgba(107,126,150,.8)'; ctx.font = '9px Inter,sans-serif';
+    ctx.fillText('total', cx, cy+9);
+  }
+
+  function drawLegend(containerId, labels, values, colors) {
+    var el = document.getElementById(containerId); if (!el) return;
+    var total = values.reduce(function(a,b){return a+b;}, 0);
+    el.innerHTML = labels.map(function(lbl, i) {
+      var pct = total ? Math.round(values[i]/total*100) : 0;
+      return '<div class="an-legend-item">' +
+        '<span class="an-legend-dot" style="background:' + colors[i % colors.length] + '"></span>' +
+        '<span class="an-legend-label" title="' + lbl + '">' + lbl + '</span>' +
+        '<span class="an-legend-val">' + values[i] + '</span>' +
+        '<span style="font-size:10px;color:var(--muted);margin-left:3px;">(' + pct + '%)</span>' +
+        '</div>';
+    }).join('');
+  }
+
+  function renderChart(canvasId, legendId, dataObj) {
+    var el = document.getElementById(canvasId); if (!el) return;
+    var labels = Object.keys(dataObj);
+    var values = labels.map(function(k){ return dataObj[k]; });
+    if (!labels.length) return;
+    drawDonut(el, labels, values, PALETTE);
+    drawLegend(legendId, labels, values, PALETTE);
+  }
+
+  renderChart('chart-status',   'chart-status-legend',   stats.by_status   || {});
+  renderChart('chart-assignee', 'chart-assignee-legend', stats.by_assignee || {});
+  renderChart('chart-priority', 'chart-priority-legend', stats.by_priority || {});
+})();
+</script>
+{% endblock %}
