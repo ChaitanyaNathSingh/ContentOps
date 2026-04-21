@@ -230,14 +230,15 @@ def dashboard(request):
                     'is_extra': e.kind == 'update' and it.plan_item_id is None,
                 })
 
+    today_str = today.isoformat()
     kpis = {
         'members':       len({r['member'] for r in flat}),
         'items':         len([r for r in flat if r['task_type']]),
         'plans':         len({r['id'] for r in flat if r['kind'] == 'plan'}),
         'updates':       len({r['id'] for r in flat if r['kind'] == 'update'}),
-        'today_plans':   DailyEntry.objects.filter(kind='plan',   entry_date=today).count(),
-        'today_updates': DailyEntry.objects.filter(kind='update', entry_date=today).count(),
-        'open_items':    EntryItem.objects.filter(entry__entry_date__range=(from_d, to_d), status='open').count(),
+        'today_plans':   len({r['id'] for r in flat if r['kind'] == 'plan'   and r['date'] == today_str}),
+        'today_updates': len({r['id'] for r in flat if r['kind'] == 'update' and r['date'] == today_str}),
+        'open_items':    len([r for r in flat if r['status'] == 'open' and r['task_type']]),
     }
 
     # chart: plan + update entries per day (not volume)
@@ -399,10 +400,14 @@ def entry_create(request, kind):
                 entry.jira_issue_url = None
                 entry.save()
                 jira_msgs = []
+                plan_ids = [row['plan_item_id'] for row in plan_line_formset.cleaned_data if row and row.get('plan_item_id')]
+                plan_items_map = {it.pk: it for it in EntryItem.objects.filter(pk__in=plan_ids)}
                 for row in plan_line_formset.cleaned_data:
                     if not row:
                         continue
-                    plan_item = EntryItem.objects.get(pk=row['plan_item_id'])
+                    plan_item = plan_items_map.get(row['plan_item_id'])
+                    if not plan_item:
+                        continue
                     notes = (row.get('notes') or '').strip() or None
                     due_at = row.get('due_at')
                     sync_r = sync_item_jira_status(plan_item, row['status'], notes, due_at=due_at)
@@ -629,10 +634,12 @@ def update_status(request):
         entry = get_object_or_404(DailyEntry, id=entry_id)
         entry.status = new_status
         entry.save(update_fields=['status'])
-        seen_keys = set()
-        for it in EntryItem.objects.filter(entry=entry).select_related('plan_item'):
+        items = list(EntryItem.objects.filter(entry=entry).select_related('plan_item'))
+        for it in items:
             it.status = new_status
-            it.save(update_fields=['status'])
+        EntryItem.objects.bulk_update(items, ['status'])
+        seen_keys = set()
+        for it in items:
             k = it.jira_issue_key or ''
             if not k and it.plan_item_id and it.plan_item:
                 k = it.plan_item.jira_issue_key or ''
@@ -1279,9 +1286,11 @@ def _parse_cr_issues(raw_issues, cfg, sel_status, sel_assignee, from_d, to_d, se
             'url': f"{cfg['base_url']}/browse/{issue.get('key', '')}",
             'summary': fields.get('summary', ''),
             'status': status_name,
+            'status_css': status_name.lower().replace(' ', ''),
             'assignee': assignee_name,
             'assignee_initial': assignee_name[:1].upper() if assignee_name else '?',
             'priority': priority_name,
+            'priority_css': priority_name.lower().replace(' ', ''),
             'issuetype': issuetype_name,
             'created': created,
             'updated': updated,

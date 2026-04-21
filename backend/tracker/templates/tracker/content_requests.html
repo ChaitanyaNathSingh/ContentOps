@@ -162,10 +162,10 @@
             </span>
           </td>
           <td class="cr-td">
-            <span class="cr-priority cr-priority--{{ issue.priority|lower|cut:' ' }}">{{ issue.priority }}</span>
+            <span class="cr-priority cr-priority--{{ issue.priority_css }}">{{ issue.priority }}</span>
           </td>
           <td class="cr-td">
-            <span class="cr-status cr-status--{{ issue.status|lower|cut:' ' }}">{{ issue.status }}</span>
+            <span class="cr-status cr-status--{{ issue.status_css }}">{{ issue.status }}</span>
           </td>
           <td class="cr-td cr-hide-md">
             {% if issue.created %}<span class="cr-date">{{ issue.created }}</span>{% else %}<span class="wl-null">—</span>{% endif %}
@@ -355,8 +355,7 @@
   white-space: nowrap;
 }
 .cr-status--done       { background: rgba(107,126,150,.12); color: var(--muted,#6b7e96); border: 1px solid rgba(107,126,150,.2); }
-.cr-status--inprogress,
-.cr-status--in\ progress { background: rgba(79,255,176,.1); color: var(--acc,#4fffb0); border: 1px solid rgba(79,255,176,.2); }
+.cr-status--inprogress { background: rgba(79,255,176,.1); color: var(--acc,#4fffb0); border: 1px solid rgba(79,255,176,.2); }
 .cr-status--todo,
 .cr-status--open       { background: rgba(110,181,255,.1); color: var(--acc2,#6eb5ff); border: 1px solid rgba(110,181,255,.2); }
 .cr-status--blocked    { background: rgba(255,209,102,.1); color: #ffd166; border: 1px solid rgba(255,209,102,.2); }
