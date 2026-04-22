@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator
 from django.utils.safestring import mark_safe
 from django.db.models import Count, Sum
 from django.http import HttpResponse, JsonResponse
@@ -1387,9 +1388,15 @@ def content_requests(request):
     assignee_items = sorted(stats['by_assignee'].items(), key=lambda x: -x[1])
     priority_items = sorted(stats['by_priority'].items(), key=lambda x: -x[1])
 
+    paginator = Paginator(issues, 25)
+    page_obj  = paginator.get_page(request.GET.get('page', 1))
+
     import json as _json
     return render(request, 'tracker/content_requests.html', {
-        'issues':           issues,
+        'issues':           page_obj,
+        'total_issues':     len(issues),
+        'page_obj':         page_obj,
+        'paginator':        paginator,
         'error_msg':        error_msg,
         'debug_info':       debug_info,
         'stats':            stats,

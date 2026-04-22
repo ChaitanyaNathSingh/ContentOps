@@ -12,7 +12,7 @@
     <p class="muted">Issues from the Content Requests Jira board</p>
   </div>
   <div class="toolbar-actions">
-    <span class="badge badge-neutral">{{ issues|length }} issue{{ issues|length|pluralize }}</span>
+    <span class="badge badge-neutral">{{ total_issues }} issue{{ total_issues|pluralize }}</span>
   </div>
 </div>
 
@@ -178,6 +178,21 @@
       </tbody>
     </table>
   </div>
+  {% if page_obj.paginator.num_pages > 1 %}
+  <div class="cr-pagination">
+    {% if page_obj.has_previous %}
+    <a class="cr-page-btn" href="?page={{ page_obj.previous_page_number }}{% if from %}&from={{ from }}{% endif %}{% if to %}&to={{ to }}{% endif %}{% if sel_status %}&status={{ sel_status }}{% endif %}{% if sel_assignee %}&assignee={{ sel_assignee }}{% endif %}{% if sel_priority %}&priority={{ sel_priority }}{% endif %}">&lsaquo; Prev</a>
+    {% else %}
+    <span class="cr-page-btn cr-page-btn--disabled">&lsaquo; Prev</span>
+    {% endif %}
+    <span class="cr-page-info">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}
+    <a class="cr-page-btn" href="?page={{ page_obj.next_page_number }}{% if from %}&from={{ from }}{% endif %}{% if to %}&to={{ to }}{% endif %}{% if sel_status %}&status={{ sel_status }}{% endif %}{% if sel_assignee %}&assignee={{ sel_assignee }}{% endif %}{% if sel_priority %}&priority={{ sel_priority }}{% endif %}">Next &rsaquo;</a>
+    {% else %}
+    <span class="cr-page-btn cr-page-btn--disabled">Next &rsaquo;</span>
+    {% endif %}
+  </div>
+  {% endif %}
   {% else %}
   <div class="card-body">
     <div class="empty-state">
@@ -372,6 +387,36 @@
 /* Responsive hide */
 @media (max-width: 900px) { .cr-hide-md { display: none !important; } }
 @media (max-width: 580px) { .cr-hide-sm { display: none !important; } }
+
+/* Pagination */
+.cr-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--border, rgba(255,255,255,.07));
+}
+.cr-page-btn {
+  display: inline-block;
+  padding: 5px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--acc2, #6eb5ff);
+  background: rgba(110,181,255,.1);
+  border: 1px solid rgba(110,181,255,.2);
+  text-decoration: none;
+  transition: background .15s;
+}
+.cr-page-btn:hover { background: rgba(110,181,255,.2); }
+.cr-page-btn--disabled {
+  color: var(--muted, #6b7e96);
+  background: rgba(107,126,150,.08);
+  border-color: rgba(107,126,150,.15);
+  cursor: default;
+}
+.cr-page-info { font-size: 12px; color: var(--muted, #6b7e96); }
 
 /* Debug / warn card */
 .cr-warn-card { border-color: rgba(255,209,102,.3) !important; }
