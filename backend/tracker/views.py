@@ -990,6 +990,7 @@ AE_FIELDS = [
     ('bug_fixes',                'Bug Fixes'),
     ('deployments',              'Deployments'),
     ('utilities',                'Utilities'),
+    ('bug_bounty_reviewed',      'Bug Bounty Reviewed'),
 ]
 
 
@@ -1061,18 +1062,21 @@ def ae_daily(request):
         for f, lbl in AE_FIELDS
     ]
 
-    # Daily log rows for table: [{date, member_values: [{member, entry}]}]
+    # Daily log rows for table: [{date, member_entries: [{member, entry, values, notes}]}]
     sorted_dates = sorted(range_by_date.keys())
     daily_rows = []
     for ds in sorted_dates:
         row_entries = range_by_date[ds]
-        daily_rows.append({
-            'date': ds,
-            'member_entries': [
-                {'member': m, 'entry': row_entries.get(m.display_name)}
-                for m in ae_members
-            ],
-        })
+        member_entries = []
+        for m in ae_members:
+            entry = row_entries.get(m.display_name)
+            member_entries.append({
+                'member': m,
+                'entry': entry,
+                'values': [getattr(entry, f, 0) for f, _ in AE_FIELDS] if entry else None,
+                'notes': entry.notes if entry else None,
+            })
+        daily_rows.append({'date': ds, 'member_entries': member_entries})
 
     return render(request, 'tracker/ae_daily.html', {
         'ae_members': ae_members,
@@ -1111,13 +1115,18 @@ def ae_daily_submit(request):
         messages.error(request, 'Invalid member.')
         return redirect('ae_daily')
 
+    notes = (request.POST.get('notes') or '').strip()
+    if not notes:
+        messages.error(request, 'Notes are required.')
+        return redirect(f"{reverse('ae_daily')}?date={date_str}&from={request.POST.get('from_d', date_str)}&to={request.POST.get('to_d', date_str)}")
+
     obj, _ = AEDailyUpdate.objects.get_or_create(member=member, entry_date=entry_date)
     for field, _ in AE_FIELDS:
         try:
             setattr(obj, field, max(0, int(request.POST.get(field, 0) or 0)))
         except (TypeError, ValueError):
             setattr(obj, field, 0)
-    obj.notes = (request.POST.get('notes') or '').strip() or None
+    obj.notes = notes
     obj.save()
     messages.success(request, f'Daily update saved for {member.display_name} on {entry_date}.')
     return redirect(f"{reverse('ae_daily')}?date={date_str}&from={request.POST.get('from_d', date_str)}&to={request.POST.get('to_d', date_str)}")
@@ -1229,10 +1238,32 @@ def ae_daily_export(request):
                 if fill:
                     c.fill = fill
 
+    # Notes row after all metric rows
+    notes_ri = 3 + len(AE_FIELDS)
+    notes_fill = ALT_FILL if len(AE_FIELDS) % 2 == 0 else None
+    notes_label_cell = ws.cell(row=notes_ri, column=1, value='Notes')
+    notes_label_cell.font = METRIC_FONT
+    notes_label_cell.border = BORDER
+    if notes_fill:
+        notes_label_cell.fill = notes_fill
+    for di, ds in enumerate(sorted_dates):
+        base_col = 2 + di * n_members
+        date_entries = by_date[ds]
+        for mi, m in enumerate(ae_members):
+            entry = date_entries.get(m.display_name)
+            val = entry.notes if entry else ''
+            c = ws.cell(row=notes_ri, column=base_col + mi, value=val or '')
+            c.font = CELL_FONT
+            c.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+            c.border = BORDER
+            if notes_fill:
+                c.fill = notes_fill
+    ws.row_dimensions[notes_ri].height = 40
+
     response = HttpResponse(
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
-    fname = f'ae_daily_{from_d.isoformat()}_{to_d.isoformat()}.xlsx'
+    fname = f'AE_Weekly_{from_d.strftime("%d%b%Y")}_{to_d.strftime("%d%b%Y")}.xlsx'
     response['Content-Disposition'] = f"attachment; filename*=UTF-8''{fname}"
     wb.save(response)
     return response

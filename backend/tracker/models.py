@@ -118,7 +118,8 @@ class AEDailyUpdate(models.Model):
     deployments = models.PositiveIntegerField(default=0)
     setter_enhancements_count = models.PositiveIntegerField(default=0, verbose_name='Setter Enhancements (count)')
     utilities = models.PositiveIntegerField(default=0)
-    notes = models.TextField(blank=True, null=True)
+    bug_bounty_reviewed = models.PositiveIntegerField(default=0, verbose_name='Bug Bounty Reviewed')
+    notes = models.TextField(blank=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

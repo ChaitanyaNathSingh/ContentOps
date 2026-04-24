@@ -25,7 +25,7 @@ class DailyEntryAdmin(admin.ModelAdmin):
 
 @admin.register(AEDailyUpdate)
 class AEDailyUpdateAdmin(admin.ModelAdmin):
-    list_display = ('entry_date', 'member', 'setter_enhancements', 'bug_fixes', 'deployments', 'updated_at')
+    list_display = ('entry_date', 'member', 'setter_enhancements', 'bug_fixes', 'deployments', 'bug_bounty_reviewed', 'updated_at')
     list_filter = ('entry_date', 'member')
     search_fields = ('member__display_name',)
     date_hierarchy = 'entry_date'

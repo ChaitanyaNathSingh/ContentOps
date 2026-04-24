@@ -79,8 +79,8 @@
             </div>
             {% endfor %}
             <div class="form-row">
-              <label>Notes <span class="label-hint">(optional)</span></label>
-              <textarea name="notes" rows="2" class="field" placeholder="Any notes for today">{{ mf.notes|default:'' }}</textarea>
+              <label>Notes <span class="label-hint" style="color:var(--accent-red,#f87171);">*required</span></label>
+              <textarea name="notes" rows="2" class="field" placeholder="Required — add notes for today" required>{{ mf.notes|default:'' }}</textarea>
             </div>
           </div>
 
@@ -175,16 +175,10 @@
           <tr>
             <td class="mono" style="white-space:nowrap;">{{ dr.date }}</td>
             {% if me.entry %}
-              <td class="td-center">{{ me.entry.setter_enhancements }}</td>
-              <td class="td-center">{{ me.entry.he_support_replies }}</td>
-              <td class="td-center">{{ me.entry.eng_assessment_replies }}</td>
-              <td class="td-center">{{ me.entry.facecode_replies }}</td>
-              <td class="td-center">{{ me.entry.data_requests_replies }}</td>
-              <td class="td-center">{{ me.entry.redash_queries }}</td>
-              <td class="td-center">{{ me.entry.bug_fixes }}</td>
-              <td class="td-center">{{ me.entry.deployments }}</td>
-              <td class="td-center">{{ me.entry.utilities }}</td>
-              <td style="font-size:12px;color:var(--text-2);max-width:200px;">{{ me.entry.notes|default:"—" }}</td>
+              {% for val in me.values %}
+              <td class="td-center">{{ val }}</td>
+              {% endfor %}
+              <td style="font-size:12px;color:var(--text-2);max-width:200px;">{{ me.notes|default:"—" }}</td>
             {% else %}
               {% for field, label in fields %}<td class="td-center muted">&mdash;</td>{% endfor %}
               <td class="muted">&mdash;</td>

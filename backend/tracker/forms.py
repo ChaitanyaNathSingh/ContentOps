@@ -140,6 +140,7 @@ class AEDailyUpdateForm(forms.ModelForm):
             'deployments',
             'setter_enhancements_count',
             'utilities',
+            'bug_bounty_reviewed',
             'notes',
         ]
         widgets = {
@@ -155,7 +156,8 @@ class AEDailyUpdateForm(forms.ModelForm):
             'deployments': forms.NumberInput(attrs={'class': _cls, 'min': 0}),
             'setter_enhancements_count': forms.NumberInput(attrs={'class': _cls, 'min': 0}),
             'utilities': forms.NumberInput(attrs={'class': _cls, 'min': 0}),
-            'notes': forms.Textarea(attrs={'rows': 3, 'class': _cls, 'placeholder': 'Optional notes'}),
+            'bug_bounty_reviewed': forms.NumberInput(attrs={'class': _cls, 'min': 0}),
+            'notes': forms.Textarea(attrs={'rows': 3, 'class': _cls, 'placeholder': 'Required — add notes for today'}),
         }
         labels = {
             'setter_enhancements': 'Setter Enhancements',
@@ -168,6 +170,7 @@ class AEDailyUpdateForm(forms.ModelForm):
             'deployments': 'Deployments',
             'setter_enhancements_count': 'Setter Enhancements (count)',
             'utilities': 'Utilities',
+            'bug_bounty_reviewed': 'Bug Bounty Reviewed',
         }
 
     def __init__(self, *args, **kwargs):
